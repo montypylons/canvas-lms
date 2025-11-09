@@ -79,7 +79,7 @@ describe "master courses - child courses - module item locking for React modules
     end
 
     it "disables the title edit input for locked items" do
-      skip "title input is not disabled: LX-2962"
+      skip "2025-07-24 title input is not disabled: LX-2962"
       go_to_modules
 
       # Expand the module to see its items
@@ -134,10 +134,7 @@ describe "master courses - child courses - module item locking for React modules
       click_INSTUI_Select_option(new_item_type_select_selector, "Quiz")
       wait_for_ajaximations
 
-      # Select the quiz we created
-      click_INSTUI_Select_option(add_existing_item_select_selector, title)
-
-      # Click Add Item
+      search_and_select_existing_item(title)
       add_item_modal_add_item_button.click
       wait_for_ajaximations
 

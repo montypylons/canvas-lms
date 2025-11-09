@@ -95,9 +95,24 @@ RSpec.describe Lti::RegistrationsController do
     context "from a sub-account context" do
       let(:subaccount) { account_model(parent_account: account) }
 
-      it "isn't found" do
-        get :index, params: { account_id: subaccount.id }
-        expect(response).to be_not_found
+      context "without feature flag" do
+        before do
+          account.disable_feature!(:canvas_apps_sub_account_access)
+        end
+
+        it "isn't found" do
+          get :index, params: { account_id: subaccount.id }
+          expect(response).to be_not_found
+        end
+      end
+
+      context "with feature flag enabled" do
+        it "is found when user has manage_account_settings permission" do
+          admin_user = account_admin_user(account: subaccount)
+          user_session(admin_user)
+          get :index, params: { account_id: subaccount.id }
+          expect(response).to be_successful
+        end
       end
     end
 
@@ -869,6 +884,35 @@ RSpec.describe Lti::RegistrationsController do
         expect(response_json[:updated_by]).to eq("Instructure")
       end
     end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:registration) { lti_registration_model(account: other_account) }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when registration belongs to site admin" do
+      let_once(:registration) { lti_registration_model(account: Account.site_admin) }
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        subject
+        expect(response_json).to include(
+          {
+            id: registration.id,
+          }
+        )
+      end
+    end
   end
 
   describe "GET show_by_client_id", type: :request do
@@ -928,6 +972,55 @@ RSpec.describe Lti::RegistrationsController do
     it "includes the configuration" do
       subject
       expect(response_json).to have_key(:configuration)
+    end
+
+    context "when registration does not have account binding for the current account" do
+      let_once(:other_account) { account_model }
+      let_once(:other_developer_key) { lti_developer_key_model(account: other_account) }
+      let_once(:other_registration) { other_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{other_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when registration belongs to site admin" do
+      let_once(:site_admin_developer_key) { lti_developer_key_model(account: Account.site_admin) }
+      let_once(:site_admin_registration) { site_admin_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{site_admin_developer_key.id}" }
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        subject
+        expect(response_json).to include(
+          {
+            id: site_admin_registration.id,
+          }
+        )
+      end
+    end
+
+    context "when registration belongs to a different root account" do
+      let_once(:different_root_account) { account_model }
+      let_once(:different_developer_key) { lti_developer_key_model(account: different_root_account) }
+      let_once(:different_registration) { different_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{different_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
     end
   end
 
@@ -1019,6 +1112,46 @@ RSpec.describe Lti::RegistrationsController do
     it "doesn't create an unnecessary overlay" do
       expect { subject }.not_to change { Lti::Overlay.count }
       expect(subject).to be_successful
+    end
+
+    context "with a site admin registration" do
+      context "as a root account admin" do
+        let_once(:site_admin) { site_admin_user }
+        let_once(:registration) { lti_registration_with_tool(account: Account.site_admin, created_by: site_admin) }
+        let_once(:account_admin) { account_admin_user(account:, name: "Account Admin") }
+
+        before do
+          user_session(account_admin)
+        end
+
+        it "doesn't let them update the registration" do
+          expect { subject }.not_to change { registration.reload.internal_lti_configuration }
+          expect(response).to be_forbidden
+        end
+      end
+    end
+
+    context "on a separate shard" do
+      context "as a root account admin on another shard" do
+        specs_require_sharding
+
+        let_once(:first_admin) { @shard1.activate { account_admin_user(account:) } }
+        # Think of this as the first account
+        let_once(:account) { @shard1.activate { account_model } }
+        let_once(:registration) { @shard1.activate { lti_registration_with_tool(account:) } }
+
+        let_once(:second_admin) { @shard2.activate { account_admin_user(account: second_account) } }
+        let_once(:second_account) { @shard2.activate { account_model } }
+
+        before do
+          user_session(second_admin)
+        end
+
+        it "doesn't let them update the registration" do
+          expect { subject }.not_to change { registration.reload.internal_lti_configuration }
+          expect(response).to be_forbidden
+        end
+      end
     end
 
     context "change-log tracking" do
@@ -1135,7 +1268,7 @@ RSpec.describe Lti::RegistrationsController do
           }
         end
 
-        it { is_expected.to have_http_status(:unprocessable_entity) }
+        it { is_expected.to have_http_status(:unprocessable_content) }
       end
     end
 
@@ -1295,7 +1428,7 @@ RSpec.describe Lti::RegistrationsController do
         end
       end
 
-      it { is_expected.to have_http_status(:unprocessable_entity) }
+      it { is_expected.to have_http_status(:unprocessable_content) }
     end
 
     context "with an invalid overlay" do
@@ -1305,7 +1438,7 @@ RSpec.describe Lti::RegistrationsController do
         end
       end
 
-      it { is_expected.to have_http_status(:unprocessable_entity) }
+      it { is_expected.to have_http_status(:unprocessable_content) }
     end
 
     context "with overlay containing nil attribute" do
@@ -1420,9 +1553,9 @@ RSpec.describe Lti::RegistrationsController do
       let_once(:other_reg) { lti_registration_model(account: Account.site_admin) }
       let_once(:other_ims_registration) { lti_ims_registration_model(lti_registration: other_reg) }
 
-      it "returns 400" do
+      it "returns 403" do
         subject
-        expect(response).to have_http_status(:bad_request)
+        expect(response).to be_forbidden
       end
     end
 
@@ -1530,9 +1663,9 @@ RSpec.describe Lti::RegistrationsController do
       let(:other_account) { account_model }
       let(:other_registration) { lti_developer_key_model(account: other_account).lti_registration }
 
-      it "returns 422" do
+      it "returns 400" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:bad_request)
       end
     end
 
@@ -1541,7 +1674,7 @@ RSpec.describe Lti::RegistrationsController do
 
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
       end
     end
 
@@ -1627,7 +1760,7 @@ RSpec.describe Lti::RegistrationsController do
     context "without any params" do
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
         expect(response_json.dig("errors", 0)).to include("lti_configuration or url is required")
       end
     end
@@ -1638,7 +1771,7 @@ RSpec.describe Lti::RegistrationsController do
 
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
         expect(response_json.dig("errors", 0)).to include("only one of lti_configuration or url")
       end
     end
@@ -1648,7 +1781,7 @@ RSpec.describe Lti::RegistrationsController do
 
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
         expect(response_json.dig("errors", 0)).to include("required")
       end
     end
@@ -1718,7 +1851,7 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
         end
       end
     end
@@ -1738,7 +1871,7 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
         end
       end
 
@@ -1749,7 +1882,7 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
         end
       end
 
@@ -1758,7 +1891,7 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
         end
       end
 
@@ -1767,7 +1900,7 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
         end
       end
 
@@ -1779,7 +1912,7 @@ RSpec.describe Lti::RegistrationsController do
 
           it "returns 422" do
             subject
-            expect(response).to have_http_status(:unprocessable_entity)
+            expect(response).to have_http_status(:unprocessable_content)
             expect(response_json.dig("errors", 0)).to include("required")
           end
         end
@@ -1980,7 +2113,7 @@ RSpec.describe Lti::RegistrationsController do
       it "returns 422 if the state is invalid" do
         params[:workflow_state] = "asdfasdfasdfasdf"
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
       end
     end
 
@@ -1989,7 +2122,7 @@ RSpec.describe Lti::RegistrationsController do
 
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
         expect(response_json[:errors].first).to include("required")
       end
     end
@@ -2056,7 +2189,7 @@ RSpec.describe Lti::RegistrationsController do
         end
       end
 
-      it { is_expected.to have_http_status(:unprocessable_entity) }
+      it { is_expected.to have_http_status(:unprocessable_content) }
     end
 
     context "using a legacy configuration" do
@@ -2570,18 +2703,18 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
           expect(response_json["errors"].first["message"]).to include("limit must be a positive integer")
         end
       end
 
       context "with limit exceeding maximum" do
-        let(:limit) { 102 }
+        let(:limit) { 101 }
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
-          expect(response_json["errors"].first["message"]).to include("limit cannot exceed 101")
+          expect(response).to have_http_status(:unprocessable_content)
+          expect(response_json["errors"].first["message"]).to include("limit cannot exceed 100")
         end
       end
 
@@ -2590,9 +2723,221 @@ RSpec.describe Lti::RegistrationsController do
 
         it "returns 422" do
           subject
-          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response).to have_http_status(:unprocessable_content)
           expect(response_json["errors"].first["message"]).to include("limit must be a positive integer")
         end
+      end
+    end
+  end
+
+  describe "GET history", type: :request do
+    let(:account) { Account.default }
+    let(:user) { account_admin_user(account:) }
+    let(:registration) { lti_registration_with_tool(account:) }
+    let(:history_entry) do
+      Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account, comment: "Test update") do
+        registration.update!(name: "New Name")
+      end
+      Lti::RegistrationHistoryEntry.last
+    end
+
+    before do
+      user_session(user)
+      account.enable_feature!(:lti_registrations_page)
+      account.enable_feature!(:lti_registrations_history)
+    end
+
+    describe "GET history" do
+      it "returns the registration history entries in the correct format" do
+        old_name = registration.name
+        history_entry
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_successful
+        json = response.parsed_body
+        # One to deploy the tool, another from our update
+        expect(json.length).to eq(2)
+
+        entry = json.find { |e| e["id"] == history_entry.id }
+
+        expect(entry["id"]).to eq(history_entry.id)
+        expect(entry["diff"]).to eq({ "registration" => [["~", ["name"], old_name, "New Name"]] })
+        expect(entry["update_type"]).to eq("manual_edit")
+        expect(entry["comment"]).to eq("Test update")
+      end
+
+      it "returns empty array when no history entries exist" do
+        Lti::RegistrationHistoryEntry.where(lti_registration: registration).destroy_all
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_successful
+        json = response.parsed_body
+        expect(json).to eq([])
+      end
+
+      it "supports pagination with per_page parameter" do
+        5.times do |i|
+          Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account) do
+            registration.update!(name: "New Name #{i}")
+          end
+        end
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history?per_page=3"
+
+        expect(response).to be_successful
+        json = response.parsed_body
+        expect(json.length).to eq(3)
+        expect(response.headers["Link"]).to be_present
+      end
+
+      it "requires the lti_registrations_history feature flag" do
+        account.disable_feature!(:lti_registrations_history)
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_not_found
+      end
+
+      it "requires manage_lti_registrations permission" do
+        account_admin_user_with_role_changes(account:, role_changes: { manage_lti_registrations: false })
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_forbidden
+      end
+
+      context "with a site admin registration and multiple accounts on the same shard" do
+        let(:registration) { lti_registration_with_tool(account: Account.site_admin) }
+        let(:other_account) { account_model }
+        let(:reg_history_entry) do
+          Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account) do
+            registration.update!(name: "Account Name")
+          end
+          Lti::RegistrationHistoryEntry.where(root_account: account).last
+        end
+        let(:other_reg_history_entry) do
+          Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: other_account) do
+            registration.update!(name: "Other Account Name")
+          end
+          Lti::RegistrationHistoryEntry.where(root_account: other_account).last
+        end
+
+        it "only returns history entries for the specified root account" do
+          reg_history_entry
+          other_reg_history_entry
+          user_session(user)
+          get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+          expect(response).to be_successful
+
+          ids = response.parsed_body.pluck("id")
+          expect(ids).to eql([reg_history_entry.id])
+        end
+      end
+    end
+  end
+
+  describe "PUT apply_registration_update_request", type: :request do
+    subject { put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/update_requests/#{registration_update_request.id}/apply", params:, as: :json }
+
+    let_once(:registration) do
+      ims_reg = lti_ims_registration_model(account:)
+      ims_reg.lti_registration
+    end
+    let_once(:registration_update_request) { lti_ims_registration_update_request_model(lti_registration: registration, root_account: account) }
+    let(:params) { { accepted: } }
+    let(:accepted) { true }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "with flag disabled" do
+      before { account.disable_feature!(:lti_registrations_page) }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:registration) { lti_registration_model(account: other_account) }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when registration update request is already processed" do
+      before { registration_update_request.update!(accepted_at: 1.hour.ago) }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when accepted is true" do
+      let(:accepted) { true }
+
+      it "applies the registration update request" do
+        expect { subject }.to change { registration_update_request.reload.accepted_at }.from(nil).to(be_present)
+        expect(response).to have_http_status(:ok)
+        expect(response_json).to include("id" => registration.id)
+      end
+    end
+
+    context "when accepted is false" do
+      let(:accepted) { false }
+
+      it "rejects the registration update request" do
+        expect { subject }.to change { registration_update_request.reload.rejected_at }.from(nil).to(be_present)
+        expect(registration_update_request.accepted_at).to be_nil
+        expect(response).to have_http_status(:ok)
+        expect(response_json).to include("id" => registration.id)
+      end
+
+      it "does not modify the registration" do
+        original_name = registration.name
+        original_updated_at = registration.updated_at
+
+        subject
+
+        registration.reload
+        expect(registration.name).to eq(original_name)
+        expect(registration.updated_at).to eq(original_updated_at)
+      end
+    end
+
+    context "when accepted parameter is omitted" do
+      let(:params) { {} }
+
+      it "returns 400 bad request" do
+        expect { subject }.not_to change { registration_update_request.reload.accepted_at }
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("accepted parameter is required")
       end
     end
   end

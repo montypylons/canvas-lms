@@ -57,7 +57,7 @@ class User < ActiveRecord::Base
   include UserLearningObjectScopes
   include PermissionsHelper
 
-  attr_accessor :previous_id, :gradebook_importer_submissions, :prior_enrollment, :override_lti_id_lock, :trusted_account
+  attr_accessor :default_name, :previous_id, :gradebook_importer_submissions, :prior_enrollment, :override_lti_id_lock, :trusted_account
 
   before_save :infer_defaults
   before_validation :ensure_lti_id, on: :update
@@ -156,7 +156,7 @@ class User < ActiveRecord::Base
   has_many :developer_keys
   has_many :access_tokens, -> { where(workflow_state: ["active", "pending"]) }, inverse_of: :user, multishard: true
   has_many :masquerade_tokens, -> { where(workflow_state: "active") }, class_name: "AccessToken", inverse_of: :real_user
-  has_many :notification_endpoints, -> { merge(AccessToken.active) }, through: :access_tokens, multishard: true
+  has_many :notification_endpoints, through: :access_tokens, multishard: true
   has_many :context_external_tools, -> { order(:name) }, as: :context, inverse_of: :context, dependent: :destroy
   has_many :lti_results, inverse_of: :user, class_name: "Lti::Result", dependent: :destroy
   has_many :lti_registration_history_entries, inverse_of: :created_by, class_name: "Lti::RegistrationHistoryEntry", foreign_key: "created_by_id"
@@ -225,7 +225,13 @@ class User < ActiveRecord::Base
            dependent: :destroy
   has_many :gradebook_csvs, dependent: :destroy, class_name: "GradebookCSV"
   has_many :block_editor_templates, class_name: "BlockEditorTemplate", as: :context, inverse_of: :context
+
+  # added for dsr
   has_many :asset_user_accesses
+  has_many :wiki_pages
+  has_many :announcements
+  has_many :discussion_topics, -> { where(type: nil) }
+  has_many :submission_comments, foreign_key: "author_id", inverse_of: :author
 
   has_one :profile, class_name: "UserProfile"
 
@@ -256,6 +262,11 @@ class User < ActiveRecord::Base
            class_name: "Auditors::ActiveRecord::FeatureFlagRecord",
            dependent: :destroy,
            inverse_of: :user
+  has_many :auditor_performing_user_account_user_records,
+           foreign_key: "performing_user_id",
+           class_name: "Auditors::ActiveRecord::AccountUserRecord",
+           dependent: :nullify,
+           inverse_of: :performing_user
   has_many :created_lti_registrations, class_name: "Lti::Registration", foreign_key: "created_by_id", inverse_of: :created_by
   has_many :updated_lti_registrations, class_name: "Lti::Registration", foreign_key: "updated_by_id", inverse_of: :updated_by
   has_many :created_lti_registration_account_bindings,
@@ -270,7 +281,7 @@ class User < ActiveRecord::Base
   has_many :lti_overlay_versions, class_name: "Lti::OverlayVersion", inverse_of: :created_by, dependent: :destroy
   has_many :lti_asset_processor_eula_acceptances, class_name: "Lti::AssetProcessorEulaAcceptance", inverse_of: :user, dependent: :destroy
 
-  has_many :comment_bank_items, -> { where("workflow_state<>'deleted'") }
+  has_many :comment_bank_items, -> { where("workflow_state<>'deleted'") }, multishard: true
   has_many :microsoft_sync_partial_sync_changes, class_name: "MicrosoftSync::PartialSyncChange", dependent: :destroy, inverse_of: :user
 
   has_many :gradebook_filters, inverse_of: :user, dependent: :destroy
@@ -580,6 +591,70 @@ class User < ActiveRecord::Base
     courses_for_enrollments(enrollments.current_and_concluded)
   end
 
+  # Returns course IDs for truly current enrollments, filtered the same way as the dashboard
+  # Excludes past courses, completed/rejected/inactive enrollments, and homeroom/horizon courses for students
+  #
+  # This is the non-cached version - prefer using cached_current_course_ids_for_dashboard for better performance
+  def current_course_ids_for_dashboard(domain_root_account: nil)
+    all_enrollments = enrollments
+                      .not_deleted
+                      .shard(in_region_associated_shards)
+                      .preload(:enrollment_state, :course, :course_section)
+                      .to_a
+
+    # Filter out homeroom and horizon courses for students
+    if domain_root_account && roles(domain_root_account).all? { |role| ["student", "user"].include?(role) }
+      all_enrollments = all_enrollments.reject { |e| e.course.elementary_homeroom_course? || e.course.horizon_course? }
+    end
+
+    # Filter to only current enrollments (matching courses_controller logic)
+    completed_states = %i[completed rejected]
+    active_states = %i[active]
+
+    current_enrollments = all_enrollments.select do |enrollment|
+      state = enrollment.state_based_on_date
+      course = enrollment.course
+
+      # Skip if course is not published
+      next false unless course.workflow_state == "available"
+
+      # Skip completed or rejected
+      next false if completed_states.include?(state)
+
+      # Skip invited/pending enrollments (these are future enrollments)
+      next false if enrollment.workflow_state == "invited" || enrollment.enrollment_state.pending? || state == :creation_pending
+
+      # Skip if active but dates are in the past
+      next false if active_states.include?(state) && enrollment.section_or_course_date_in_past?
+
+      # Skip hard inactive
+      next false if enrollment.hard_inactive?
+
+      # Skip inactive state
+      next false if state == :inactive
+
+      true
+    end
+
+    current_enrollments.map(&:course_id).uniq
+  end
+
+  # Cached version of current_course_ids_for_dashboard
+  # Uses Rails.cache with batched keys to automatically invalidate when enrollments change
+  def cached_current_course_ids_for_dashboard(domain_root_account: nil)
+    # Include domain_root_account in cache key since it affects filtering
+    cache_key = ["current_course_ids_for_dashboard", domain_root_account&.global_id, ApplicationController.region].cache_key
+
+    Rails.cache.fetch_with_batched_keys(
+      cache_key,
+      batch_object: self,
+      batched_keys: :enrollments,
+      expires_in: 1.day
+    ) do
+      current_course_ids_for_dashboard(domain_root_account:)
+    end
+  end
+
   def self.skip_updating_account_associations
     @skip_updating_account_associations = true
     yield
@@ -790,7 +865,13 @@ class User < ActiveRecord::Base
         current_associations[key] = [aa.id, aa.depth]
       end
 
-      account_id_to_root_account_id = Account.where(id: precalculated_associations&.keys).pluck(:id, Arel.sql(Account.resolved_root_account_id_sql)).to_h
+      account_id_to_root_account_id = if precalculated_associations.present?
+                                        Account.where(id: precalculated_associations&.keys)
+                                               .pluck(:id, Arel.sql(Account.resolved_root_account_id_sql))
+                                               .to_h
+                                      else
+                                        {}
+                                      end
 
       users_or_user_ids.uniq.sort_by { |u| u.try(:id) || u }.each do |user_id|
         if user_id.is_a? User
@@ -983,7 +1064,7 @@ class User < ActiveRecord::Base
 
   def infer_defaults
     self.name = nil if name == "User"
-    self.name ||= email || t("#user.default_user_name", "User")
+    self.name ||= short_name || email || default_name || t("#user.default_user_name", "User")
     self.short_name = nil if short_name == ""
     self.short_name ||= self.name
     self.sortable_name = nil if sortable_name == ""
@@ -1228,7 +1309,10 @@ class User < ActiveRecord::Base
       user_observee_scope.destroy_all
       eportfolio_scope&.in_batches&.destroy_all
       pseudonym_scope.each(&:destroy)
-      account_users.each(&:destroy)
+      account_users.each do |account_user|
+        account_user.current_user = updating_user
+        account_user.destroy
+      end
 
       # only delete the user's communication channels when the last account is
       # removed (they don't belong to any particular account). they will always
@@ -1395,6 +1479,7 @@ class User < ActiveRecord::Base
       view_user_generated_access_tokens
       generate_observer_pairing_code
       update_speed_grader_settings
+      read_observer_alerts
     ]
 
     given { |user| user == self && user.user_can_edit_name? }
@@ -2007,7 +2092,7 @@ class User < ActiveRecord::Base
 
   # the logic here is copied from feature_flags_controller#index
   # we don't want to add use_dyslexic_font to ENV if
-  # (a) the flag is shadowed or (b) the flag is off/locked at site admin
+  # the flag is off/locked at site admin
   def can_see_dyslexic_font_feature_flag?(session)
     can_read_site_admin = Account.site_admin.grants_right?(@current_user, session, :read)
 
@@ -2022,6 +2107,20 @@ class User < ActiveRecord::Base
     return false if ff.enabled? && ff.locked?(self)
 
     true
+  end
+
+  def prefers_widget_dashboard?
+    # Explicit preference takes priority
+    return preferences[:widget_dashboard_user_preference] unless preferences[:widget_dashboard_user_preference].nil?
+
+    # Default based on feature flag state:
+    # - "allowed" state: default to FALSE (opt-in required)
+    # - "allowed_on" state: default to TRUE (opt-out available)
+    # Check if any associated account has the feature enabled (allowed_on or on states)
+    # Use EXISTS subquery to avoid N+1 queries for users with many accounts
+    associated_accounts
+      .where("EXISTS (SELECT 1 FROM #{FeatureFlag.quoted_table_name} WHERE context_type = 'Account' AND context_id = accounts.id AND feature = 'widget_dashboard' AND state IN ('on', 'allowed_on'))")
+      .exists?
   end
 
   def auto_show_cc?
@@ -3332,6 +3431,8 @@ class User < ActiveRecord::Base
     end
   end
 
+  # despite the name being crocodoc_id, this is still used for DocViewer. It's also sometimes used for moderated grading
+  # ids as well. Renaming it would be too much work for now.
   def crocodoc_id!
     cid = crocodoc_id
     return cid if cid
@@ -3638,7 +3739,7 @@ class User < ActiveRecord::Base
     end
     roles << "student" if enrollment_types.intersect?(%w[StudentEnrollment StudentViewEnrollment])
     roles << "fake_student" if fake_student?
-    roles << "observer" if enrollment_types.intersect?(%w[ObserverEnrollment])
+    roles << "observer" if enrollment_types.include?("ObserverEnrollment")
     roles << "teacher" if enrollment_types.intersect?(%w[TeacherEnrollment TaEnrollment DesignerEnrollment])
     account_users = GuardRail.activate(:secondary) do
       root_account.cached_all_account_users_for(self)

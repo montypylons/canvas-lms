@@ -20,7 +20,7 @@ import CanvasModal from '@canvas/instui-bindings/react/Modal'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
-import {SimpleSelect} from '@instructure/ui-simple-select'
+import ModuleItemMultiSelect from './ModuleItemMultiSelect'
 import {TextInput} from '@instructure/ui-text-input'
 import {Text} from '@instructure/ui-text'
 import {FormFieldGroup} from '@instructure/ui-form-field'
@@ -47,6 +47,7 @@ import {
   isExternalNewItemField,
   isExternalToolNewItemField,
 } from '../../utils/utils'
+import AddItemFormFieldGroup from './AddItemFormFieldGroup'
 
 const I18n = createI18nScope('context_modules_v2')
 
@@ -80,17 +81,26 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
     isError,
   } = useModuleItemContent(itemType, courseId, undefined, isModuleItemContentEnabled)
 
+  const allItems = useMemo(() => {
+    return data?.pages?.flatMap(page => page.items) || []
+  }, [data?.pages])
+
   const handleExited = () => {
     setFormErrors({})
     reset()
     dispatch({type: 'SET_SELECTED_ITEM_ID', value: ''})
+    dispatch({type: 'SET_SELECTED_ITEM', value: null})
+    dispatch({type: 'SET_SELECTED_ITEM_IDS', value: []})
+    dispatch({type: 'SET_SELECTED_ITEMS', value: []})
     dispatch({type: 'SET_TAB_INDEX', value: 0})
     queryClient.invalidateQueries({
       queryKey: ['moduleItemContent', itemType, courseId, undefined],
     })
   }
-  type AssignmentLike = ContentItem & {isQuiz?: boolean}
+
   type NewItemField = (typeof NEW_ITEM_FIELDS)[number]
+  type AssignmentLike = ContentItem & {isQuiz?: boolean}
+
   const rawItems: ContentItem[] = useMemo(() => {
     switch (itemType) {
       case ITEM_TYPE.CONTEXT_MODULE_SUB_HEADER:
@@ -98,9 +108,9 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
       case ITEM_TYPE.EXTERNAL_URL:
         return [{id: 'new_url', name: I18n.t('Create a new URL')}]
       default:
-        return (data?.items ?? []) as AssignmentLike[]
+        return allItems as AssignmentLike[]
     }
-  }, [itemType, data?.items])
+  }, [itemType, allItems])
 
   const contentItems: ContentItem[] = useMemo(() => {
     return itemType === ITEM_TYPE.ASSIGNMENT
@@ -120,21 +130,10 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
     setFormErrors({})
     reset()
     dispatch({type: 'SET_SELECTED_ITEM_ID', value: ''})
+    dispatch({type: 'SET_SELECTED_ITEM', value: null})
+    dispatch({type: 'SET_SELECTED_ITEM_IDS', value: []})
+    dispatch({type: 'SET_SELECTED_ITEMS', value: []})
   }, [isOpen, itemType, state.tabIndex])
-
-  useEffect(() => {
-    if (!isOpen || !contentItems.length || state.tabIndex !== 0) return
-
-    const firstSelection = contentItems[0]
-    if (!state.selectedItemId) {
-      dispatch({type: 'SET_SELECTED_ITEM_ID', value: firstSelection?.id ?? ''})
-      dispatch({type: 'SET_NEW_ITEM', field: 'name', value: firstSelection?.name ?? ''})
-
-      if (itemType === ITEM_TYPE.FILE) {
-        dispatch({type: 'SET_NEW_ITEM', field: 'file', value: firstSelection?.name ?? ''})
-      }
-    }
-  }, [isOpen, state.tabIndex, state.selectedItemId, contentItems, itemType])
 
   useEffect(() => {
     setFormErrors({})
@@ -149,11 +148,13 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
     if (itemType === ITEM_TYPE.FILE) {
       dispatch({type: 'SET_NEW_ITEM', field: 'file', value: firstSelection?.name ?? ''})
     }
-  }, [isOpen, itemType, contentItems.length, state.tabIndex, dispatch, setFormErrors])
+  }, [isOpen, itemType, state.tabIndex, dispatch, setFormErrors])
 
   const isNameRequiredAndMissing = (
     state: {
       tabIndex: number
+      selectedItemId: string
+      selectedItems: any[]
       newItem: {name: string; file: File | null}
       externalUrl: {name: string}
       externalTool: {name: string}
@@ -161,9 +162,13 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
     },
     type: string,
   ) => {
+    const addItemTabSelected = state.tabIndex === 0
+    const createItemTabSelected = state.tabIndex === 1
+
     return (
-      (!state.newItem.name.trim() && !NAMELESS_TYPES.includes(type)) ||
-      (type === ITEM_TYPE.FILE && !state.newItem.file) ||
+      (addItemTabSelected && state.selectedItems.length === 0 && !NAMELESS_TYPES.includes(type)) ||
+      (createItemTabSelected && !state.newItem.name.trim() && !NAMELESS_TYPES.includes(type)) ||
+      (createItemTabSelected && type === ITEM_TYPE.FILE && !state.newItem.file) ||
       (type === ITEM_TYPE.CONTEXT_MODULE_SUB_HEADER && !state?.textHeader) ||
       (type === ITEM_TYPE.EXTERNAL_URL && !state?.externalUrl?.name) ||
       (type === ITEM_TYPE.EXTERNAL_TOOL && !state?.externalTool.name)
@@ -184,35 +189,22 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
   }
 
   const renderContentItems = () => {
-    if (isError) {
-      return (
-        <View as="div" padding="medium" textAlign="center">
-          <Text color="danger">{I18n.t('Error loading content')}</Text>
-        </View>
-      )
-    }
     return (
-      <SimpleSelect
-        data-testid="add-item-content-select"
+      <ModuleItemMultiSelect
+        itemType={itemType}
+        courseId={courseId}
+        selectedItemIds={state.selectedItemIds}
+        onSelectionChange={(itemIds, items) => {
+          dispatch({type: 'SET_SELECTED_ITEM_IDS', value: itemIds})
+          dispatch({type: 'SET_SELECTED_ITEMS', value: items})
+          if (formErrors.name) {
+            setFormErrors(prev => ({...prev, name: undefined}))
+          }
+        }}
         renderLabel={I18n.t('Select %{itemType}', {itemType: itemTypeLabel})}
-        assistiveText={I18n.t('Type or use arrow keys to navigate options.')}
-        value={state.selectedItemId || ''}
-        onChange={(_e, {value}) =>
-          dispatch({type: 'SET_SELECTED_ITEM_ID', value: String(value ?? '')})
-        }
-        renderAfterInput={
-          isLoadingContent && <Spinner renderTitle={I18n.t('Loading')} size="x-small" />
-        }
         messages={formErrors.name ? [{text: formErrors.name, type: 'newError'}] : []}
-      >
-        {contentItems.map(option => {
-          return (
-            <SimpleSelect.Option id={option.id} key={option.id} value={option.id}>
-              {option.name}
-            </SimpleSelect.Option>
-          )
-        })}
-      </SimpleSelect>
+        isRequired={true}
+      />
     )
   }
 
@@ -246,12 +238,17 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
   )
 
   const handleCreateChange = useCallback(
-    (field: string, value: 'string | File | null') => {
+    (field: string, value: string | File | null) => {
       if ((NEW_ITEM_FIELDS as readonly string[]).includes(field)) {
         dispatch({type: 'SET_NEW_ITEM', field: field as NewItemField, value})
         setFormErrors(prev => (prev.name ? {...prev, name: undefined} : prev))
       }
     },
+    [dispatch],
+  )
+
+  const onIndentChange = useCallback(
+    (value: number) => dispatch({type: 'SET_INDENTATION', value}),
     [dispatch],
   )
 
@@ -317,7 +314,12 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
           >
             {I18n.t('Cancel')}
           </Button>
-          <Button color="primary" type="submit" disabled={state.isLoading}>
+          <Button
+            color="primary"
+            type="submit"
+            disabled={state.isLoading}
+            data-testid="submit-button"
+          >
             {I18n.t('Add Item')}
           </Button>
         </>
@@ -326,16 +328,10 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
       <ScreenReaderContent aria-live="polite" aria-atomic="true">
         {screenReaderMessage}
       </ScreenReaderContent>
-      <View as="div" margin="0 0 medium 0">
+      <View as="div" margin="small small">
         <AddItemTypeSelector itemType={itemType} onChange={value => setItemType(value)} />
       </View>
-      <FormFieldGroup
-        description={
-          <ScreenReaderContent>
-            {I18n.t('Add an item to %{module}', {module: moduleName})}
-          </ScreenReaderContent>
-        }
-      >
+      <View padding="small">
         {TYPES_WITH_TABS.includes(itemType) && (
           <Tabs
             onRequestTabChange={(_event, tabData) => {
@@ -351,8 +347,15 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
                 addPanelRef.current = el
                 if (el) el.setAttribute('tabindex', '-1')
               }}
+              padding="medium none"
             >
-              {renderContentItems()}
+              <AddItemFormFieldGroup
+                indentValue={state.indentation}
+                onIndentChange={onIndentChange}
+                moduleName={moduleName}
+              >
+                {renderContentItems()}
+              </AddItemFormFieldGroup>
             </Tabs.Panel>
             <Tabs.Panel
               id="create-item-form"
@@ -362,6 +365,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
                 createPanelRef.current = el
                 if (el) el.setAttribute('tabindex', '-1')
               }}
+              padding="medium none"
             >
               <CreateLearningObjectForm
                 itemType={itemType}
@@ -369,12 +373,19 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
                 state={state}
                 onChange={handleCreateChange}
                 nameError={formErrors.name || ''}
+                moduleName={moduleName}
+                indentValue={state.indentation}
+                onIndentChange={onIndentChange}
               />
             </Tabs.Panel>
           </Tabs>
         )}
         {itemType === ITEM_TYPE.CONTEXT_MODULE_SUB_HEADER && (
-          <View as="div" margin="medium 0">
+          <AddItemFormFieldGroup
+            indentValue={state.indentation}
+            onIndentChange={onIndentChange}
+            moduleName={moduleName}
+          >
             <TextInput
               renderLabel={I18n.t('Header text')}
               placeholder={I18n.t('Enter header text')}
@@ -382,7 +393,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
               messages={formErrors.name ? [{text: formErrors.name, type: 'newError'}] : []}
               onChange={(_e, value) => dispatch({type: 'SET_TEXT_HEADER', value})}
             />
-          </View>
+          </AddItemFormFieldGroup>
         )}
         {itemType === ITEM_TYPE.EXTERNAL_URL && (
           <ExternalItemForm
@@ -398,6 +409,9 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
             itemType={itemType}
             contentItems={contentItems}
             formErrors={formErrors}
+            moduleName={moduleName}
+            indentValue={state.indentation}
+            onIndentChange={onIndentChange}
           />
         )}
 
@@ -415,13 +429,12 @@ const AddItemModal: React.FC<AddItemModalProps> = ({
             itemType={itemType}
             contentItems={contentItems}
             formErrors={formErrors}
+            moduleName={moduleName}
+            indentValue={state.indentation}
+            onIndentChange={onIndentChange}
           />
         )}
-        <IndentSelector
-          value={state.indentation}
-          onChange={value => dispatch({type: 'SET_INDENTATION', value})}
-        />
-      </FormFieldGroup>
+      </View>
     </CanvasModal>
   )
 }

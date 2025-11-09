@@ -57,14 +57,7 @@ describe Translation do
       subject { described_class.languages({ translation: true, ai_translation_improvements: false, cedar_translation: false }) }
 
       let(:language_abbrs) do
-        %w[
-          af sq am ar hy az bn bs bg ca zh hr cs da nl en et
-          fa tl fi fr ka de el gu ht ha he hi hu is id
-          ga it ja kn kk ko lv lt mk ms ml mr mn no ps pl pt pa
-          ro ru sr si sk sl so es sw sv ta th tr uk ur uz vi cy
-          ast ba be br ceb ff fy gd gl ig ilo jv km lb lg ln lo
-          mg my ne ns oc or sd ss su tn wo xh yi yo zu
-        ]
+        %w[ca de en es fr nl pt-BR ru sv zh-Hans]
       end
 
       it "returns the proper list" do
@@ -112,9 +105,9 @@ describe Translation do
       expect(described_class.current_translation_provider_type(flags)).to be_nil
     end
 
-    it "returns sagemaker as default translation provider" do
+    it "returns cedar as default translation provider" do
       flags = { translation: true, ai_translation_improvements: false, cedar_translation: false }
-      expect(described_class.current_translation_provider_type(flags)).to eq(Translation::TranslationType::SAGEMAKER)
+      expect(described_class.current_translation_provider_type(flags)).to eq(Translation::TranslationType::CEDAR)
     end
 
     it "returns aws translate as improved translation provider" do
@@ -158,11 +151,6 @@ describe Translation do
 
     it "translates text when tgt_lang is provided" do
       expect(described_class.translate_text(text:, tgt_lang: "es", flags: translation_flags, options: { feature_slug: "inbox", current_user: })).to eq(result)
-    end
-
-    it "raises TextTooLongError if html_string is too long" do
-      text = "a" * Translation::CHARACTER_LIMIT
-      expect { described_class.translate_text(text:, tgt_lang: "es", flags: translation_flags) }.to raise_error(Translation::TextTooLongError)
     end
 
     it "provides default feature_slug if not received from parameters" do
@@ -290,11 +278,6 @@ describe Translation do
         flags: translation_flags,
         options: { current_user:, feature_slug: "unknown-feature" }
       )
-    end
-
-    it "raises TextTooLongError if html_string is too long" do
-      long_html = "<p>" + ("a" * Translation::CHARACTER_LIMIT) + "</p>"
-      expect { described_class.translate_html(html_string: long_html, tgt_lang: "es", flags: translation_flags) }.to raise_error(Translation::TextTooLongError)
     end
   end
 end

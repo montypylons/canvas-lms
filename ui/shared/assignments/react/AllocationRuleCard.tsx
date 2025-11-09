@@ -16,69 +16,57 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
+import React, {useState} from 'react'
+import CreateEditAllocationRuleModal from './CreateEditAllocationRuleModal'
 import {IconButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {IconEditLine, IconTrashLine} from '@instructure/ui-icons'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {useScope as createI18nScope} from '@canvas/i18n'
-import {CourseStudent} from '../graphql/hooks/useAssignedStudents'
+import {AllocationRuleType} from '../graphql/teacher/AssignmentTeacherTypes'
+import {useDeleteAllocationRule} from '../graphql/hooks/useDeleteAllocationRule'
+import {formatRuleDescription, formatFullRuleDescription} from './utils/formatRuleDescription'
 
 const I18n = createI18nScope('peer_review_allocation_rule_card')
-
-export type AllocationRuleType = {
-  id: string
-  reviewer: CourseStudent
-  reviewee: CourseStudent
-  mustReview: boolean
-  reviewPermitted: boolean
-  appliesToReviewer: boolean
-}
 
 const AllocationRuleCard = ({
   rule,
   canEdit,
+  assignmentId,
+  requiredPeerReviewsCount,
+  refetchRules,
+  handleRuleDelete,
 }: {
   rule: AllocationRuleType
   canEdit: boolean
+  assignmentId: string
+  requiredPeerReviewsCount: number
+  refetchRules: (ruleId: string, isNewRule?: boolean, ruleDescription?: string) => void
+  handleRuleDelete?: (ruleId: string, ruleDescription?: string, error?: any) => void
 }): React.ReactElement => {
-  const {mustReview, reviewPermitted, appliesToReviewer, reviewer, reviewee} = rule
+  const {mustReview, reviewPermitted, appliesToAssessor, assessor, assessee} = rule
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
-  const formatRuleDescription = () => {
-    if (appliesToReviewer) {
-      if (mustReview && reviewPermitted) {
-        return I18n.t('Must review %{subject}', {subject: reviewee.name})
-      } else if (mustReview && !reviewPermitted) {
-        return I18n.t('Must not review %{subject}', {subject: reviewee.name})
-      } else if (!mustReview && reviewPermitted) {
-        return I18n.t('Should review %{subject}', {subject: reviewee.name})
-      } else {
-        return I18n.t('Should not review %{subject}', {subject: reviewee.name})
-      }
-    } else {
-      if (mustReview && reviewPermitted) {
-        return I18n.t('Must be reviewed by %{subject}', {subject: reviewer.name})
-      } else if (mustReview && !reviewPermitted) {
-        return I18n.t('Must not be reviewed by %{subject}', {subject: reviewer.name})
-      } else if (!mustReview && reviewPermitted) {
-        return I18n.t('Should be reviewed by %{subject}', {subject: reviewer.name})
-      } else {
-        return I18n.t('Should not be reviewed by %{subject}', {subject: reviewer.name})
-      }
-    }
-  }
+  const {mutate: deleteRule} = useDeleteAllocationRule(
+    () => {
+      handleRuleDelete?.(rule._id, formatFullRuleDescription(rule))
+    },
+    error => {
+      handleRuleDelete?.(rule._id, undefined, error)
+    },
+  )
 
   return (
     <View as="div" padding="xx-small small" borderRadius="medium" borderWidth="small">
       <Flex direction="column">
         <Flex.Item padding="none small" margin="small none xx-small none">
           <Text size="content" wrap="break-word">
-            {appliesToReviewer ? reviewer.name : reviewee.name}{' '}
+            {appliesToAssessor ? assessor.name : assessee.name}{' '}
           </Text>
           <br />
           <Text color="secondary" size="contentSmall" wrap="break-word">
-            {formatRuleDescription()}
+            {formatRuleDescription(rule)}
           </Text>
         </Flex.Item>
 
@@ -87,15 +75,16 @@ const AllocationRuleCard = ({
             <Flex>
               <Flex.Item padding="small none x-small small">
                 <IconButton
-                  data-testid="edit-allocation-rule-button"
+                  id={`edit-rule-button-${rule._id}`}
+                  data-testid={`edit-rule-button-${rule._id}`}
                   renderIcon={<IconEditLine color="brand" />}
                   withBackground={false}
                   withBorder={false}
                   size="small"
                   screenReaderLabel={I18n.t('Edit Allocation Rule: %{rule}', {
-                    rule: formatRuleDescription(),
+                    rule: formatFullRuleDescription(rule),
                   })}
-                  onClick={() => {}} // TODO [EGG-1627]: Open edit allocation rule modal
+                  onClick={() => setIsEditModalOpen(true)}
                 />
               </Flex.Item>
               <Flex.Item padding="small none x-small">
@@ -106,15 +95,24 @@ const AllocationRuleCard = ({
                   withBorder={false}
                   size="small"
                   screenReaderLabel={I18n.t('Delete Allocation Rule: %{rule}', {
-                    rule: formatRuleDescription(),
+                    rule: formatFullRuleDescription(rule),
                   })}
-                  onClick={() => {}} // TODO [EGG-1628]: Delete allocation rule
+                  onClick={() => deleteRule({ruleId: rule._id})}
                 />
               </Flex.Item>
             </Flex>
           </Flex.Item>
         )}
       </Flex>
+      <CreateEditAllocationRuleModal
+        rule={rule}
+        isOpen={isEditModalOpen}
+        isEdit={true}
+        setIsOpen={setIsEditModalOpen}
+        assignmentId={assignmentId}
+        requiredPeerReviewsCount={requiredPeerReviewsCount}
+        refetchRules={refetchRules}
+      />
     </View>
   )
 }

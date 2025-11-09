@@ -29,7 +29,18 @@ module AssetProcessorReportHelper
                       .for_active_processors
                       .for_submissions(all_submission_ids)
                       .preload(:asset)
-                      .preload(asset: :attachment)
+                      .preload(asset: :attachment) # TODO: we can just get fields available thru lti asset
+
+    # Filter to only latest discussion_entry_versions
+    visible_reports = visible_reports
+                      .joins("LEFT JOIN #{DiscussionEntryVersion.quoted_table_name} ON #{DiscussionEntryVersion.quoted_table_name}.id = #{Lti::Asset.quoted_table_name}.discussion_entry_version_id")
+                      .where(
+                        "#{Lti::Asset.quoted_table_name}.discussion_entry_version_id IS NULL OR NOT EXISTS (
+                          SELECT 1 FROM #{DiscussionEntryVersion.quoted_table_name} dev2
+                          WHERE dev2.discussion_entry_id = #{DiscussionEntryVersion.quoted_table_name}.discussion_entry_id
+                          AND dev2.version > #{DiscussionEntryVersion.quoted_table_name}.version
+                        )"
+                      )
 
     if for_student
       visible_reports = visible_reports.preload(asset: :submission)
@@ -41,8 +52,12 @@ module AssetProcessorReportHelper
         submission = report.asset.submission
         next false if submission.blank?
 
-        attachment_ids = submission.attachment_associations.pluck(:attachment_id)
-        attachment_ids.include?(report.asset.attachment_id) || report.asset.submission_attempt == submission.attempt
+        attachment_ids = submission.attachment_ids&.presence&.split(",") || []
+
+        # Include discussion entry assets (already filtered to latest version above)
+        next true if report.asset.discussion_entry_version_id.present?
+
+        attachment_ids.include?(report.asset.attachment_id.to_s) || report.asset.submission_attempt == submission.attempt
       end
     end
 
@@ -56,7 +71,7 @@ module AssetProcessorReportHelper
                       processed_visible_reports = reports.select { |r| r.processing_progress == Lti::AssetReport::PROGRESS_PROCESSED }
                       if processed_visible_reports.any?
                         processed_visible_reports
-                      elsif visible_reports.any?
+                      elsif reports.any?
                         # There are visible reports, but not processed yet -> Show "No results" on the UI
                         []
                       else
@@ -68,34 +83,6 @@ module AssetProcessorReportHelper
                     end
     end
     ret
-  end
-
-  def asset_reports(submission:, for_student: true)
-    return nil if submission.blank?
-    return nil unless submission.root_account&.feature_enabled?(:lti_asset_processor)
-
-    raw_reports = raw_asset_reports(submission_ids: [submission.id], for_student:)[submission.id]
-
-    raw_reports&.map do |report|
-      report.info_for_display.merge(
-        {
-          asset_processor_id: report.lti_asset_processor_id,
-          asset: {
-            id: report.asset.id,
-            attachment_id: report.asset.attachment_id,
-            attachment_name: report.asset.attachment&.name,
-            submission_id: report.asset.submission_id,
-            submission_attempt: report.asset.submission_attempt
-          }
-        }
-      )
-    end
-  end
-
-  def asset_processors(assignment:)
-    return nil unless assignment.root_account.feature_enabled?(:lti_asset_processor)
-
-    assignment.lti_asset_processors.info_for_display
   end
 
   private

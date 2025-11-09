@@ -18,9 +18,34 @@
 
 import React from 'react'
 import {render, screen} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {CourseCode} from '../CourseCode'
 import {getCourseCodeColor} from '../../widgets/CourseGradesWidget/utils'
 import {WidgetDashboardProvider} from '../../../hooks/useWidgetDashboardContext'
+
+//Mock TruncateText to simulate truncation behavior in tests
+jest.mock('@instructure/ui-truncate-text', () => ({
+  TruncateText: ({
+    children,
+    onUpdate,
+  }: {
+    children: string
+    onUpdate?: (truncated: boolean) => void
+  }) => {
+    // Simulate truncation for strings longer than 30 characters
+    React.useEffect(() => {
+      if (onUpdate && children && children.length > 30) {
+        onUpdate(true)
+      }
+    }, [children, onUpdate])
+
+    // Simulate truncated text display (first 15 chars + ...)
+    const displayText =
+      children && children.length > 30 ? `${children.substring(0, 15)}...` : children
+
+    return displayText
+  },
+}))
 
 const mockSharedCourseData = [
   {
@@ -28,7 +53,20 @@ const mockSharedCourseData = [
     courseCode: 'TEST101',
     courseName: 'Test Course',
     currentGrade: 95,
-    gradingScheme: 'letter' as const,
+    gradingScheme: [
+      ['A', 0.94],
+      ['A-', 0.9],
+      ['B+', 0.87],
+      ['B', 0.84],
+      ['B-', 0.8],
+      ['C+', 0.77],
+      ['C', 0.74],
+      ['C-', 0.7],
+      ['D+', 0.67],
+      ['D', 0.64],
+      ['D-', 0.61],
+      ['F', 0],
+    ] as Array<[string, number]>,
     lastUpdated: '2025-01-01T00:00:00Z',
   },
 ]
@@ -55,28 +93,18 @@ const renderWithProvider = (ui: React.ReactElement, overrides = {}) => {
 
 describe('CourseCode', () => {
   describe('getCourseCodeColor', () => {
-    it('should return consistent colors based on grid index', () => {
-      const color1 = getCourseCodeColor(0)
-      const color2 = getCourseCodeColor(0)
+    it('should return consistent default color', () => {
+      const color1 = getCourseCodeColor()
+      const color2 = getCourseCodeColor()
       expect(color1).toEqual(color2)
     })
 
-    it('should return different colors for different grid indices', () => {
-      const color1 = getCourseCodeColor(0)
-      const color2 = getCourseCodeColor(1)
-      expect(color1).not.toEqual(color2)
-    })
-
-    it('should cycle through the palette', () => {
-      const color1 = getCourseCodeColor(0)
-      const color7 = getCourseCodeColor(6) // Should be same as index 0
-      expect(color1).toEqual(color7)
-    })
-
-    it('should use code hash when no grid index provided', () => {
-      const color1 = getCourseCodeColor(undefined, 'CS101')
-      const color2 = getCourseCodeColor(undefined, 'CS101')
-      expect(color1).toEqual(color2)
+    it('should return default neutral colors', () => {
+      const color = getCourseCodeColor()
+      expect(color).toHaveProperty('background')
+      expect(color).toHaveProperty('textColor')
+      expect(color.background).toBe('#E5E5E5')
+      expect(color.textColor).toBe('#2D3B45')
     })
   })
 
@@ -123,6 +151,47 @@ describe('CourseCode', () => {
     it('should use grid index for consistent colors', () => {
       renderWithProvider(<CourseCode courseId="123" gridIndex={0} />)
       expect(screen.getByText('TEST101')).toBeInTheDocument()
+    })
+
+    it('should render with tooltip for long course code', async () => {
+      const longCode = 'VERYLONGCOURSECODE12345678901234567890'
+      const truncatedCode = 'VERYLONGCOURSEC...'
+
+      const user = userEvent.setup()
+
+      renderWithProvider(<CourseCode courseId="123" overrideCode={longCode} />)
+
+      // Verify truncated text is displayed
+      expect(screen.getByText(truncatedCode)).toBeInTheDocument()
+
+      // The tooltip wrapper should be focusable and have tabIndex 0
+      const truncatedTextElement = screen.getByText(truncatedCode)
+      const tooltipWrapper = truncatedTextElement.closest('[tabindex="0"]')
+      expect(tooltipWrapper).toBeInTheDocument()
+      expect(tooltipWrapper).toHaveAttribute('tabIndex', '0')
+
+      // Hover over the tooltip wrapper to trigger the tooltip
+      if (tooltipWrapper) {
+        await user.hover(tooltipWrapper)
+      }
+
+      // After hovering, the full code should appear in the tooltip
+      const tooltip = await screen.findByText(
+        (content: string, element: Element | null): boolean => {
+          return content === longCode && Boolean(element?.id?.startsWith('Tooltip___'))
+        },
+      )
+      expect(tooltip).toBeInTheDocument()
+    })
+
+    it('should not render with tooltip for normal course code length', () => {
+      const shortCode = 'SHORT'
+      renderWithProvider(<CourseCode courseId="123" overrideCode={shortCode} />)
+
+      expect(screen.getByText(shortCode)).toBeInTheDocument()
+
+      // Check that there's no focusable wrapper (should not find element with aria-label)
+      expect(screen.queryByLabelText(shortCode)).not.toBeInTheDocument()
     })
   })
 })

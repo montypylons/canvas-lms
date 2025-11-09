@@ -39,6 +39,27 @@ const I18n = createI18nScope('block-editor')
 
 type EditorChoices = 'rce' | 'block_editor' | 'block_content_editor' | ''
 
+const BlockContentEditorContents = {
+  title: I18n.t('New Way to Create Pages'),
+  mainText: I18n.t(
+    'We are introducing a new page editor to give you more flexibility and save time and effort. Choose the editor that best suits your workflow.',
+  ),
+  linkText: null,
+  linkUrl: null,
+}
+
+const BlockEditorContents = {
+  title: I18n.t('New Way to Create'),
+  mainText: I18n.t(
+    "We've introduced a new editor to give you more flexibility and power in content creation. Choose the editor that best suits your workflow.",
+  ),
+  linkText: I18n.t(
+    'Read about key features and discover what you can create using the Block Editor.',
+  ),
+  linkUrl:
+    'https://productmarketing.instructuremedia.com/embed/464a6c68-1de4-4821-bc0c-08101a5bc819',
+}
+
 const ChooseEditorModal = (props: ChooseEditorModalProps) => {
   const [isOpen, setIsOpen] = useState<boolean>(true)
   const [rememberMyChoice, setRememberMyChoice] = useState<boolean>(!!ENV.text_editor_preference)
@@ -70,6 +91,11 @@ const ChooseEditorModal = (props: ChooseEditorModalProps) => {
     }
   }
 
+  const content =
+    props.editorFeature === 'block_content_editor'
+      ? BlockContentEditorContents
+      : BlockEditorContents
+
   return (
     <Modal
       label="New Way To Create"
@@ -80,83 +106,78 @@ const ChooseEditorModal = (props: ChooseEditorModalProps) => {
       shouldCloseOnDocumentClick={true}
     >
       <Modal.Header>
-        <Heading>{I18n.t('New Way to Create')}</Heading>
+        <Heading>{content.title}</Heading>
         <CloseButton placement="end" onClick={close} screenReaderLabel="Close" />
       </Modal.Header>
       <Modal.Body>
-        <Heading level="h3" margin="0 0 small 0">
-          {I18n.t('Try the New Block Editor')}
-        </Heading>
-        <Text lineHeight="condensed">
-          <div>
-            {I18n.t(
-              "We've introduced a new editor to give you more flexibility and power in content creation. Choose the editor that best suits your workflow.",
-            )}
-          </div>
-        </Text>
-        <View
-          as="div"
-          borderRadius="medium"
-          borderWidth="small"
-          padding="small"
-          margin="small 0 medium 0"
-        >
-          <Flex gap="small" justifyItems="space-between">
-            <Flex.Item shouldShrink={true}>
-              <Text size="x-small" lineHeight="condensed">
-                <div>
-                  {I18n.t(
-                    'Read about key features and discover what you can create using the Block Editor.',
-                  )}
-                </div>
-              </Text>
-            </Flex.Item>
-            <Flex.Item>
-              <Link
-                href="https://productmarketing.instructuremedia.com/embed/464a6c68-1de4-4821-bc0c-08101a5bc819"
-                target="_blank"
-              >
-                <IconExternalLinkLine />
-              </Link>
-            </Flex.Item>
-          </Flex>
+        <Heading level="h3">{I18n.t('Try the New Block Editor')}</Heading>
+        <View as="div" margin="small 0 0 0">
+          <Text lineHeight="condensed">
+            <div>{content.mainText}</div>
+          </Text>
         </View>
-        <SimpleSelect
-          onChange={(_e: React.SyntheticEvent, data: {value?: string | undefined | number}) => {
-            setErroredForm(false)
-            setEditorChoice(data.value as EditorTypes)
-          }}
-          renderLabel={I18n.t('Select an Editor')}
-          messages={erroredForm ? [{type: 'error', text: I18n.t('Please choose an editor')}] : []}
-          placeholder={I18n.t('Select One')}
-          defaultValue={editorChoice}
-          data-testid="choose-an-editor-dropdown"
-          required={true}
-        >
-          {props.editorFeature === 'block_editor' && (
-            <SimpleSelect.Option id="block_editor" value="block_editor">
-              {I18n.t('Try the Block Editor')}
-            </SimpleSelect.Option>
-          )}
-          {props.editorFeature === 'block_content_editor' && (
-            <SimpleSelect.Option id="block_content_editor" value="block_content_editor">
-              {I18n.t('Try the Block Content Editor')}
-            </SimpleSelect.Option>
-          )}
-          <SimpleSelect.Option id="rce" value="rce">
-            {I18n.t('Use the RCE')}
-          </SimpleSelect.Option>
-        </SimpleSelect>
-        <View as="div" padding="small 0 medium 0">
-          <Checkbox
-            checked={rememberMyChoice}
-            onChange={() => {
-              setRememberMyChoice(!rememberMyChoice)
+        {content.linkText && content.linkUrl && (
+          <View
+            as="div"
+            borderRadius="medium"
+            borderWidth="small"
+            padding="small"
+            margin="small 0 0 0"
+          >
+            <Flex gap="small" justifyItems="space-between">
+              <Flex.Item shouldShrink={true}>
+                <Text size="x-small" lineHeight="condensed">
+                  <div>{content.linkText}</div>
+                </Text>
+              </Flex.Item>
+              <Flex.Item>
+                <Link href={content.linkUrl} target="_blank">
+                  <IconExternalLinkLine />
+                </Link>
+              </Flex.Item>
+            </Flex>
+          </View>
+        )}
+        <View as="div" margin="medium 0 0 0">
+          <SimpleSelect
+            onChange={(_e: React.SyntheticEvent, data: {value?: string | undefined | number}) => {
+              setErroredForm(false)
+              setEditorChoice(data.value as EditorTypes)
             }}
-            label={I18n.t('Remember my choice')}
-            value="remember_my_choice"
-          />
+            renderLabel={I18n.t('Select an Editor')}
+            messages={erroredForm ? [{type: 'error', text: I18n.t('Please choose an editor')}] : []}
+            placeholder={I18n.t('Select One')}
+            defaultValue={editorChoice}
+            data-testid="choose-an-editor-dropdown"
+            required={true}
+          >
+            {props.editorFeature === 'block_editor' && (
+              <SimpleSelect.Option id="block_editor" value="block_editor">
+                {I18n.t('Try the Block Editor')}
+              </SimpleSelect.Option>
+            )}
+            {props.editorFeature === 'block_content_editor' && (
+              <SimpleSelect.Option id="block_content_editor" value="block_content_editor">
+                {I18n.t('Try the Block Content Editor')}
+              </SimpleSelect.Option>
+            )}
+            <SimpleSelect.Option id="rce" value="rce">
+              {I18n.t('Use the RCE')}
+            </SimpleSelect.Option>
+          </SimpleSelect>
         </View>
+        {props.editorFeature === 'block_editor' && (
+          <View as="div" padding="small 0 medium 0">
+            <Checkbox
+              checked={rememberMyChoice}
+              onChange={() => {
+                setRememberMyChoice(!rememberMyChoice)
+              }}
+              label={I18n.t('Remember my choice')}
+              value="remember_my_choice"
+            />
+          </View>
+        )}
       </Modal.Body>
       <Modal.Footer>
         <Button margin="0 x-small 0 0" onClick={close}>

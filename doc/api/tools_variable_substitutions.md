@@ -418,7 +418,7 @@ If the context is a Course, returns sourced Id of the context.
 ```
 ## Context.id.history
 With respect to the current course, recursively returns the context ids of the courses from which content has been copied (excludes cartridge imports).
-Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated' will show at the end of the list.
+Will show a limit of 1000 context ids. When the number passes 1000, 'truncated' will show at the end of the list.
 
 This is an alias of `Canvas.course.previousContextIds.recursive`.
 
@@ -427,6 +427,19 @@ This is an alias of `Canvas.course.previousContextIds.recursive`.
 
 ```
 "1234,4567"
+```
+## Activity.id.history
+With respect to the current assignment, recursively returns the activity (assignment)
+LTI ids of the assignments from which the current assignment was copied or imported.
+The value of this variable is updated only if the source assignment has at least one asset processor attached.
+Tools can use this to detect copies and automatically import related resources.
+The result is limited to 1000 ids. When the number passes 1000, 'truncated' will show at the end of the list.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"25de3090-de71-4419-9a7c-53b509945710,057361e2-87f9-4597-b072-4b7464bdefde"
 ```
 ## Message.documentTarget
 communicates the kind of browser window/frame where the Canvas has launched a tool.
@@ -776,7 +789,7 @@ enabled.
 **Launch Parameter**: *com_instructure_assignment_anonymous_grading*  
 
 ```
-true
+"true"
 ```
 ## com.instructure.Assignment.restrict_quantitative_data
 returns true if the assignment restricts quantitative data.
@@ -786,7 +799,7 @@ Assignment types: points, percentage, gpa_scale are all considered quantitative.
 **Launch Parameter**: *com_instructure_assignment_restrict_quantitative_data*  
 
 ```
-true
+"true"
 ```
 ## com.instructure.Course.gradingScheme
 returns the grading scheme data for the course
@@ -870,6 +883,17 @@ With respect to the current course, returns the course ids of the courses from w
 
 ```
 1234
+```
+## com.instructure.Course.rce_studio_embed_improvements
+Returns "true" if the RCE Studio embed improvements feature is enabled
+for the current course, or account context "false" otherwise.
+This allows LTI tools to adapt their UI based on Canvas feature flags.
+
+**Availability**: *always*  
+
+
+```
+"true"
 ```
 ## Person.name.full
 Returns the full name of the launching user.
@@ -1086,7 +1110,7 @@ Returns true for root account admins and false for all other roles.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.user.adminableAccounts
 Returns a string with a comma-separated list of the (local) account IDs
@@ -1241,7 +1265,7 @@ Returns true if the user can only view and interact with users in their own sect
 
 
 ```
-true
+"true"
 ```
 ## Canvas.course.sectionSisSourceIds
 Returns a comma separated list of section sis_id's that the user is enrolled in.
@@ -1287,6 +1311,24 @@ Returns the assignment_id of the assignment that was launched.
 
 ```
 1234
+```
+## Canvas.assignment.new_quizzes_type
+Returns the new_quizzes type of the assignment that was launched.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"graded_quiz"
+```
+## Canvas.assignment.anonymous_participants
+Returns whether the assignment that was launched anonymizes the participants.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+true
 ```
 ## Canvas.assignment.description
 Returns the assignment_description of the assignment that was launched.
@@ -1377,7 +1419,7 @@ Returns true if the assignment is hidden in the gradebook.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.omitFromFinalGrade
 Returns true if the assignment is omitted from students' final grade.
@@ -1386,7 +1428,7 @@ Returns true if the assignment is omitted from students' final grade.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.unlockAt *[deprecated]*
 deprecated in favor of ISO8601.
@@ -1485,7 +1527,7 @@ Only available when launched as an assignment.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.lockdownEnabled
 Returns true if the assignment is LDB enabled.
@@ -1495,7 +1537,7 @@ Only available when launched as an assignment.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.allowedAttempts
 Returns the allowed number of submission attempts.
@@ -1694,7 +1736,7 @@ in Canvas-side GET request that triggers the LTI launch.
 
 
 ```
-true
+"true"
 ```
 ## com.instructure.Course.available_canvas_resources
 Returns a JSON-encoded list of content groups which can be selected, providing ID and name of each group,
@@ -1770,5 +1812,5 @@ This is used to determine whether to display the "Generate With AI" button in th
 
 
 ```
-true
+"true"
 ```

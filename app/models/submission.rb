@@ -125,7 +125,8 @@ class Submission < ActiveRecord::Base
                 :score_unchanged,
                 :skip_grade_calc,
                 :skip_grader_check,
-                :visible_to_user
+                :visible_to_user,
+                :preloaded_attachments
 
   # This can be set to true to force late policy behaviour that would
   # be skipped otherwise. See #late_policy_relevant_changes? and
@@ -1564,7 +1565,7 @@ class Submission < ActiveRecord::Base
 
   def submit_attachments_to_canvadocs
     if saved_change_to_attachment_ids? && submission_type != "discussion_topic"
-      attachments.preload(:crocodoc_document, :canvadoc).each do |a|
+      attachments.preload(:canvadoc).find_each do |a|
         # associate previewable-document and submission for permission checks
         if a.canvadocable? && Canvadocs.annotations_supported?
           submit_to_canvadocs = true
@@ -1572,18 +1573,12 @@ class Submission < ActiveRecord::Base
           a.shard.activate do
             CanvadocsSubmission.find_or_create_by(submission_id: id, canvadoc_id: a.canvadoc.id)
           end
-        elsif a.crocodocable?
-          submit_to_canvadocs = true
-          a.create_crocodoc_document! unless a.crocodoc_document
-          a.shard.activate do
-            CanvadocsSubmission.find_or_create_by(submission_id: id, crocodoc_document_id: a.crocodoc_document.id)
-          end
         end
 
         next unless submit_to_canvadocs
 
         opts = {
-          preferred_plugins: [Canvadocs::RENDER_PDFJS, Canvadocs::RENDER_BOX, Canvadocs::RENDER_CROCODOC],
+          preferred_plugins: [Canvadocs::RENDER_PDFJS, Canvadocs::RENDER_BOX],
           wants_annotation: true,
         }
 
@@ -2045,8 +2040,7 @@ class Submission < ActiveRecord::Base
   def self.bulk_load_attachments_and_previews(submissions)
     bulk_load_versioned_attachments(submissions)
     attachments = submissions.flat_map(&:versioned_attachments)
-    ActiveRecord::Associations.preload(attachments,
-                                       [:canvadoc, :crocodoc_document])
+    ActiveRecord::Associations.preload(attachments, :canvadoc)
     Version.preload_version_number(submissions)
   end
 
@@ -2103,9 +2097,10 @@ class Submission < ActiveRecord::Base
     end
   end
 
-  # Avoids having O(N) attachment queries.  Returns a hash of
-  # submission to attachments.
-  def self.bulk_load_attachments_for_submissions(submissions, preloads: nil)
+  # Avoids having O(N) attachment queries.  If preload_only is true, sets the
+  # preloaded_attachments attribute on each given submission and returns nil.
+  # Otherwise, returns a hash of submission to attachments.
+  def self.bulk_load_attachments_for_submissions(submissions, preloads: nil, preload_only: false)
     submissions = Array(submissions)
     attachment_ids_by_submission =
       submissions.index_with { |s| s.attachment_associations.map(&:attachment_id) }
@@ -2118,10 +2113,22 @@ class Submission < ActiveRecord::Base
       attachments_by_id = attachments_by_id.group_by(&:id)
     end
 
-    attachments_by_submission = submissions.map do |s|
-      [s, attachments_by_id.values_at(*attachment_ids_by_submission[s]).flatten.compact.uniq]
+    get_attachments = ->(s) { attachments_by_id.values_at(*attachment_ids_by_submission[s]).flatten.compact.uniq }
+
+    if preload_only
+      submissions.each do |s|
+        attachments = get_attachments.call(s)
+        s.preloaded_attachments = attachments
+      end
+      nil
+    else
+      attachments_by_submission = submissions.map do |s|
+        attachments = get_attachments.call(s)
+        s.preloaded_attachments = attachments
+        [s, attachments]
+      end
+      attachments_by_submission.to_h
     end
-    attachments_by_submission.to_h
   end
 
   def includes_attachment?(attachment)
@@ -2433,10 +2440,7 @@ class Submission < ActiveRecord::Base
   def moderated_grading_allow_list(current_user = user, loaded_attachments: nil)
     return nil unless assignment.moderated_grading? && current_user.present?
 
-    has_crocodoc = (loaded_attachments || attachments).any?(&:crocodoc_available?)
-    moderation_allow_list_for_user(current_user).map do |user|
-      user.moderated_grading_ids(has_crocodoc)
-    end
+    moderation_allow_list_for_user(current_user).map(&:moderated_grading_ids)
   end
 
   def moderation_allow_list_for_user(current_user)
@@ -2584,7 +2588,7 @@ class Submission < ActiveRecord::Base
   end
 
   def visible_submission_comments_for(current_user)
-    displayable_comments = if assignment.grade_as_group?
+    displayable_comments = if assignment.grade_as_group? && assignment.has_groups?
                              all_submission_comments_for_groups
                            elsif assignment.moderated_grading? && assignment.grades_published?
                              # When grades are published for a moderated assignment, provisional
@@ -3049,16 +3053,29 @@ class Submission < ActiveRecord::Base
     assignment.muted?
   end
 
+  def graded_or_resubmitted_without_posting?
+    # Only indicate that the grade is hidden if there's an actual grade.
+    # Similarly, hide the grade if the student resubmits (which will keep
+    # the old grade but bump the workflow back to "submitted").
+    (graded? || resubmitted?) && !posted?
+  end
+  private :graded_or_resubmitted_without_posting?
+
   def hide_grade_from_student?(for_plagiarism: false)
     return false if for_plagiarism
 
     if assignment.post_manually?
       posted_at.blank?
     else
-      # Only indicate that the grade is hidden if there's an actual grade.
-      # Similarly, hide the grade if the student resubmits (which will keep
-      # the old grade but bump the workflow back to "submitted").
-      (graded? || resubmitted?) && !posted?
+      graded_or_resubmitted_without_posting?
+    end
+  end
+
+  def hide_comments_from_student?
+    if assignment.post_manually?
+      !comments_posted?
+    else
+      graded_or_resubmitted_without_posting?
     end
   end
 
@@ -3073,6 +3090,10 @@ class Submission < ActiveRecord::Base
     posted_at.present?
   end
 
+  def comments_posted?
+    posted? || posted_comments_at.present?
+  end
+
   def assignment_muted_changed
     grade_change_audit(force_audit: true)
   end
@@ -3085,9 +3106,18 @@ class Submission < ActiveRecord::Base
     return [] unless assignment.active_rubric_association?
 
     unless posted? || grants_right?(viewing_user, :read_grade)
+      assessments = rubric_assessments_for_attempt(attempt:)
+
+      if posted_comments_at.present?
+        # Comments are posted but grades are not, so show assessments without point information
+        return assessments.map do |assessment|
+          strip_rubric_assessment_points(assessment)
+        end
+      end
+
       # If this submission is unposted and the viewer can't view the grade,
       # show only that viewer's assessments
-      return rubric_assessments_for_attempt(attempt:).select do |assessment|
+      return assessments.select do |assessment|
         assessment.assessor_id == viewing_user.id
       end
     end
@@ -3143,6 +3173,26 @@ class Submission < ActiveRecord::Base
     end
   end
   private :rubric_assessments_for_attempt
+
+  # Strips point information from a rubric assessment while preserving comments
+  # Used when comments are posted but grades are not (posted_comments_at set but not posted_at)
+  def strip_rubric_assessment_points(assessment)
+    stripped = assessment.dup
+    stripped.id = assessment.id
+    stripped.score = nil
+
+    # Strip points from each rating in the data while keeping comments
+    if assessment.data.present?
+      stripped.data = assessment.data.map do |rating|
+        rating = rating.dup if rating.is_a?(Hash)
+        rating.delete(:points) if rating.is_a?(Hash)
+        rating
+      end
+    end
+
+    stripped
+  end
+  private :strip_rubric_assessment_points
 
   def self.queue_bulk_update(context, section, grader, grade_data)
     progress = Progress.create!(context:, tag: "submissions_update")
@@ -3223,7 +3273,7 @@ class Submission < ActiveRecord::Base
             comment = {
               comment: comment[:text_comment],
               author: grader,
-              hidden: assignment.post_manually? && !submission.posted?
+              hidden: assignment.post_manually? && !submission.comments_posted?,
             }.merge(
               comment
             ).with_indifferent_access
@@ -3351,6 +3401,16 @@ class Submission < ActiveRecord::Base
     read_or_calc_extracted_text[:contains_images]
   end
 
+  def read_extracted_text
+    rows = submission_texts.where(attempt:).pluck(:text, :contains_images)
+
+    rows.each_with_object({ text: +"", contains_images: false }) do |(row_txt, has_img), result|
+      result[:text] << "\n\n" unless result[:text].empty?
+      result[:text] << row_txt.to_s
+      result[:contains_images] ||= has_img
+    end
+  end
+
   def extract_text_from_upload?
     submission_type == "online_upload" && Account.site_admin.feature_enabled?(:grading_assistance_file_uploads) && attachments.any?
   end
@@ -3398,6 +3458,10 @@ class Submission < ActiveRecord::Base
 
   def lti_attempt_id(attempt = nil)
     "#{lti_id}:#{attempt || self.attempt}"
+  end
+
+  def skip_broadcasts
+    super || assignment.rollcall_assignment?
   end
 
   private
@@ -3609,10 +3673,12 @@ class Submission < ActiveRecord::Base
   end
 
   def extract_text
+    upsert_rows = []
+    unique_index = nil
+
     if extract_text_from_upload?
       upsert_rows = attachments.filter_map do |attachment|
         result = FileTextExtractionService.new(attachment:).call
-
         next unless result && result.text.present?
 
         build_upsert_row(
@@ -3621,8 +3687,7 @@ class Submission < ActiveRecord::Base
           attachment_id: attachment.id
         )
       end
-
-      SubmissionText.upsert_all(upsert_rows, unique_by: :index_on_sub_attempt_attach) if upsert_rows.any?
+      unique_index = :index_on_sub_attempt_attach
     elsif body.present?
       upsert_rows = [
         build_upsert_row(
@@ -3630,8 +3695,14 @@ class Submission < ActiveRecord::Base
           contains_images: contains_rce_file_link?(body)
         )
       ]
+      unique_index = :index_on_sub_attempt
+    end
+    return unless upsert_rows.any?
 
-      SubmissionText.upsert_all(upsert_rows, unique_by: :index_on_sub_attempt) if upsert_rows.any?
+    begin
+      SubmissionText.upsert_all(upsert_rows, unique_by: unique_index)
+    rescue => e
+      Rails.logger.error("Failed to upsert SubmissionText records (#{unique_index}): #{e.message}")
     end
   end
 
@@ -3660,19 +3731,6 @@ class Submission < ActiveRecord::Base
 
       result
     end
-  end
-
-  def read_extracted_text
-    rows = submission_texts.where(attempt:).pluck(:text, :contains_images)
-
-    rows.each_with_object({ text: +"", contains_images: false }) do |(row_txt, has_img), result|
-      result[:text] << "\n\n" unless result[:text].empty?
-      result[:text] << row_txt.to_s
-      result[:contains_images] ||= has_img
-    end
-  rescue => e
-    Rails.logger.error("Failed to read extracted attachment for submission #{id}: #{e.message}")
-    { text: "", contains_images: false }
   end
 
   def contains_rce_file_link?(html_body)

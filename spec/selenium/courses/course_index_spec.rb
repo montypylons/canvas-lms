@@ -139,11 +139,13 @@ describe "course index" do
     end
   end
 
-  context "accessibility column" do
+  context "accessibility column", skip: "2025-10-22 Temporarily disabled until we figure out what to do with this (in scope of RCX-4312)" do
     before do
       account = Account.default
-      account.settings[:enable_content_a11y_checker] = true
-      account.save!
+      account.enable_feature!(:a11y_checker)
+      [@current_courses, @past_courses, @future_courses].flatten.each do |course|
+        course.enable_feature!(:a11y_checker_eap)
+      end
     end
 
     it "is visible when at least one classic course exists" do
@@ -157,7 +159,7 @@ describe "course index" do
     it "displays no issues when the course has no accessibility issues" do
       [@current_courses, @past_courses, @future_courses].flatten.each do |course|
         wiki_page = wiki_page_model(course:, body: "<ul><li>foo</li></ul>")
-        accessibility_resource_scan = AccessibilityResourceScan.for_context(wiki_page).first_or_initialize
+        accessibility_resource_scan = AccessibilityResourceScan.where(context: wiki_page).first_or_initialize
         accessibility_resource_scan.assign_attributes(
           course:,
           workflow_state: "completed",
@@ -184,7 +186,7 @@ describe "course index" do
     it "displays status pills when the course has accessibility issues" do
       [@current_courses, @past_courses, @future_courses].flatten.each do |course|
         wiki_page = wiki_page_model(course:, body: "<ul><li>foo</li></ul>")
-        accessibility_resource_scan = AccessibilityResourceScan.for_context(wiki_page).first_or_initialize
+        accessibility_resource_scan = AccessibilityResourceScan.where(context: wiki_page).first_or_initialize
         accessibility_resource_scan.assign_attributes(
           course:,
           workflow_state: "completed",
@@ -212,7 +214,7 @@ describe "course index" do
     it "displays checking spinner when the course is being scanned" do
       [@current_courses, @past_courses, @future_courses].flatten.each do |course|
         wiki_page = wiki_page_model(course:, body: "<ul><li>foo</li></ul>")
-        accessibility_resource_scan = AccessibilityResourceScan.for_context(wiki_page).first_or_initialize
+        accessibility_resource_scan = AccessibilityResourceScan.where(context: wiki_page).first_or_initialize
         accessibility_resource_scan.assign_attributes(
           course:,
           workflow_state: "in_progress",
@@ -240,7 +242,7 @@ describe "course index" do
       stub_const("Course::MAX_ACCESSIBILITY_SCAN_RESOURCES", 0)
       [@current_courses, @past_courses, @future_courses].flatten.each do |course|
         wiki_page = wiki_page_model(course:, body: "<ul><li>foo</li></ul>")
-        accessibility_resource_scan = AccessibilityResourceScan.for_context(wiki_page).first_or_initialize
+        accessibility_resource_scan = AccessibilityResourceScan.where(context: wiki_page).first_or_initialize
         accessibility_resource_scan.assign_attributes(
           course:,
           workflow_state: "completed",

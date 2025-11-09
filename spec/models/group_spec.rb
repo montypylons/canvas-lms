@@ -1011,7 +1011,6 @@ describe Group do
     context "permissions" do
       before do
         @group = Group.create!(context: @course, group_category: @non_collaborative_category, name: "Test Group", non_collaborative: true)
-        @course.account.enable_feature! :assign_to_differentiation_tags
         @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
         @course.account.save!
         @course.account.reload
@@ -1130,6 +1129,57 @@ describe Group do
         tag = GroupCategory.create(context: @course, name: "Category 5", non_collaborative: true)
         expect(tag).to be_valid
         expect(tag.errors).to be_empty
+      end
+    end
+  end
+
+  describe "#block_content_editor_enabled?" do
+    context "when context is a Course" do
+      before do
+        @course_context_group = Group.create!(name: "Course Group", context: @course)
+      end
+
+      it "delegates to the course's block_content_editor_enabled? method and returns true" do
+        allow(@course).to receive(:block_content_editor_enabled?).and_return(true)
+
+        expect(@course_context_group.block_content_editor_enabled?).to be true
+        expect(@course).to have_received(:block_content_editor_enabled?)
+      end
+
+      it "delegates to the course's block_content_editor_enabled? method and returns false" do
+        allow(@course).to receive(:block_content_editor_enabled?).and_return(false)
+
+        expect(@course_context_group.block_content_editor_enabled?).to be false
+        expect(@course).to have_received(:block_content_editor_enabled?)
+      end
+    end
+
+    context "when context is not a Course" do
+      before do
+        @account = account_model
+        @account_context_group = Group.create!(name: "Account Group", context: @account)
+      end
+
+      it "returns false" do
+        expect(@account_context_group.block_content_editor_enabled?).to be false
+      end
+
+      it "does not call any methods on the context" do
+        allow(@account).to receive(:block_content_editor_enabled?).and_return(true)
+
+        expect(@account_context_group.block_content_editor_enabled?).to be false
+        expect(@account).not_to have_received(:block_content_editor_enabled?)
+      end
+    end
+
+    context "when context is nil" do
+      before do
+        @group_without_context = Group.new(name: "Group Without Context")
+        @group_without_context.context = nil
+      end
+
+      it "returns false" do
+        expect(@group_without_context.block_content_editor_enabled?).to be false
       end
     end
   end

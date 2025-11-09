@@ -24,7 +24,7 @@
 #
 # For a definitive list of all supported placements for external tools and more information
 # on configuring them,
-# see the <a href="file.placements_overview">Placements Documentation</a>.
+# see the <a href="file.placements_overview.html">Placements Documentation</a>.
 #
 # @model ContextExternalTool
 #     {
@@ -377,6 +377,21 @@
 #           "description": "Configuration for activity asset processor contribution placement. Null if not configured for this placement.",
 #           "example": {"type": "ContextExternalToolPlacement"},
 #           "$ref": "ContextExternalToolPlacement"
+#         },
+#         "message_settings": {
+#           "description": "Configuration for placementless message types (currently only LtiEulaRequest).",
+#           "type": "array",
+#           "items": {
+#             "$ref": "ContextExternalToolMessageSettings"
+#           },
+#           "example": [
+#             {
+#               "type": "LtiEulaRequest",
+#               "enabled": true,
+#               "target_link_uri": "https://example.com/eula",
+#               "custom_fields": {"agreement_version": "2.1"}
+#             }
+#           ]
 #         }
 #       }
 #     }
@@ -530,29 +545,34 @@
 #           "description": "If true, query parameters from the launch URL will not be copied to the POST body. LTI 1.1 only.",
 #           "example": true,
 #           "type": "boolean"
+#         }
+#       }
+#     }
+#
+# @model ContextExternalToolMessageSettings
+#     {
+#       "id": "ContextExternalToolMessageSettings",
+#       "description": "Configuration for a placementless message type (message type that doesn't belong to a specific placement)",
+#       "properties": {
+#         "type": {
+#           "description": "The message type identifier (e.g., 'LtiEulaRequest')",
+#           "example": "LtiEulaRequest",
+#           "type": "string"
 #         },
-#         "eula": {
-#           "description": "End User License Agreement configuration for ActivityAssetProcessor placement. Only valid for ActivityAssetProcessor placement.",
-#           "example": {
-#             "enabled": true,
-#             "target_link_uri": "https://example.com/eula",
-#             "custom_fields": {"agreement_version": "2.1"}
-#           },
-#           "type": "object",
-#           "properties": {
-#             "enabled": {
-#               "description": "Whether the EULA is enabled",
-#               "type": "boolean"
-#             },
-#             "target_link_uri": {
-#               "description": "The URI for the EULA",
-#               "type": "string"
-#             },
-#             "custom_fields": {
-#               "description": "Custom fields for the EULA",
-#               "type": "object"
-#             }
-#           }
+#         "enabled": {
+#           "description": "Whether this message type is enabled",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "target_link_uri": {
+#           "description": "The target URI for launching this message type",
+#           "example": "https://example.com/eula",
+#           "type": "string"
+#         },
+#         "custom_fields": {
+#           "description": "Custom fields specific to this message type.",
+#           "example": {"key": "value"},
+#           "type": "object"
 #         }
 #       }
 #     }
@@ -852,17 +872,22 @@ class ExternalToolsController < ApplicationController
       launch_settings = JSON.parse(launch_settings)
       @lti_launch = Lti::Launch.new
       @lti_launch.params = launch_settings["tool_settings"]
-      @lti_launch.resource_url = launch_settings["launch_url"]
       @lti_launch.link_text =  launch_settings["tool_name"]
       @lti_launch.analytics_id = launch_settings["analytics_id"]
 
       tool = Lti::ToolFinder.find_by(id: launch_settings.dig("metadata", "tool_id")) ||
              Lti::ToolFinder.from_url(launch_settings["launch_url"], @context)
       if tool
+        # Use domain-specific URL for environment overrides
+        launch_url_with_overrides = tool.url_with_environment_overrides(launch_settings["launch_url"])
+        @lti_launch.resource_url = launch_url_with_overrides
+
         placement = launch_settings.dig("metadata", "placement")
         launch_type = launch_settings.dig("metadata", "launch_type")&.to_sym
-        Lti::LogService.new(tool:, context: @context, user: @current_user, session_id: session[:session_id], placement:, launch_type:, launch_url: launch_settings["launch_url"]).call
+        Lti::LogService.new(tool:, context: @context, user: @current_user, session_id: session[:session_id], placement:, launch_type:, launch_url: launch_url_with_overrides).call
         log_asset_access(tool, "external_tools", "external_tools", overwrite: false)
+      else
+        @lti_launch.resource_url = launch_settings["launch_url"]
       end
 
       render Lti::AppUtil.display_template("borderless")
@@ -994,7 +1019,7 @@ class ExternalToolsController < ApplicationController
           named_context_url(@context, :context_external_content_success_url, "external_tool_dialog", include_host: true)
         end
 
-      @lti_launch = lti_launch(tool: @tool, selection_type:, launch_token: params[:launch_token])
+      @lti_launch = lti_launch(tool: @tool, selection_type:, launch_token: params[:launch_token], secure_params: params[:secure_params])
       unless @lti_launch
         timing_meta.tags = { error: true, lti_version: @tool&.lti_version }.compact
         return
@@ -1118,10 +1143,14 @@ class ExternalToolsController < ApplicationController
     end
   end
 
-  def assignment_from_assignment_id
-    return nil unless params[:assignment_id].present?
+  def assignment_from_assignment_id(lti_assignment_id: nil)
+    if params[:assignment_id].present?
+      assignment = api_find(@context.assignments.active, params[:assignment_id])
+    elsif lti_assignment_id.present?
+      assignment = @context.assignments.active.find_by(lti_context_id: lti_assignment_id)
+    end
+    return nil unless assignment
 
-    assignment = api_find(@context.assignments.active, params[:assignment_id])
     raise Lti::Errors::UnauthorizedError unless assignment.grants_right?(@current_user, :read)
 
     assignment
@@ -1142,7 +1171,7 @@ class ExternalToolsController < ApplicationController
     opts = default_opts.merge(opts)
     opts[:launch_url] = tool.url_with_environment_overrides(opts[:launch_url])
 
-    assignment = assignment_from_assignment_id
+    assignment = assignment_from_assignment_id(lti_assignment_id: opts.dig(:link_params, :ext, :lti_assignment_id))
 
     if assignment.present? && @current_user.present?
       assignment = AssignmentOverrideApplicator.assignment_overridden_for(assignment, @current_user)
@@ -1198,30 +1227,14 @@ class ExternalToolsController < ApplicationController
                 )
               end
 
-    lti_launch.params = if selection_type == "homework_submission" && assignment && !tool.use_1_3?
-                          adapter.generate_post_payload_for_homework_submission(assignment)
-                        elsif selection_type == "student_context_card" && params[:student_id]
-                          student = api_find(User, params[:student_id])
-                          can_launch = tool.visible_with_permission_check?(selection_type, @current_user, @context, session) &&
-                                       @context.user_has_been_student?(student)
-                          raise Lti::Errors::UnauthorizedError unless can_launch
+    lti_launch.params = generate_lti_launch_params(
+      selection_type:,
+      adapter:,
+      assignment:,
+      tool:,
+      student_id: params[:student_id]
+    )
 
-                          adapter.generate_post_payload_for_student_context_card(student:)
-                        elsif tool.extension_setting(selection_type, "required_permissions")
-                          can_launch = tool.visible_with_permission_check?(selection_type, @current_user, @context, session)
-                          raise Lti::Errors::UnauthorizedError unless can_launch
-
-                          adapter.generate_post_payload
-                        elsif selection_type == "assignment_selection" && assignment&.external_tool_tag&.content_id == tool.id
-                          adapter.generate_post_payload_for_assignment(
-                            assignment,
-                            lti_grade_passback_api_url(tool),
-                            blti_legacy_grade_passback_api_url(tool),
-                            lti_turnitin_outcomes_placement_url(tool.id)
-                          )
-                        else
-                          adapter.generate_post_payload
-                        end
     lti_launch.resource_url = opts[:launch_url] || adapter.launch_url
     lti_launch.link_text = selection_type ? tool.label_for(selection_type.to_sym, I18n.locale) : tool.default_label
     lti_launch.analytics_id = tool.tool_id
@@ -1229,6 +1242,46 @@ class ExternalToolsController < ApplicationController
     lti_launch
   end
   protected :basic_lti_launch_request
+
+  def generate_lti_launch_params(
+    selection_type:,
+    adapter:,
+    tool:,
+    assignment:,
+    student_id:
+  )
+    if selection_type == "homework_submission" && assignment && !tool.use_1_3?
+      adapter.generate_post_payload_for_homework_submission(assignment)
+    elsif selection_type == "student_context_card" && student_id
+      student = api_find(User, student_id)
+      can_launch = tool.visible_with_permission_check?(selection_type, @current_user, @context, session) &&
+                   @context.user_has_been_student?(student)
+      raise Lti::Errors::UnauthorizedError unless can_launch
+
+      adapter.generate_post_payload_for_student_context_card(student:)
+    elsif tool.extension_setting(selection_type, "required_permissions")
+      can_launch = tool.visible_with_permission_check?(selection_type, @current_user, @context, session)
+      raise Lti::Errors::UnauthorizedError unless can_launch
+
+      adapter.generate_post_payload
+    elsif selection_type == "assignment_selection" && assignment&.external_tool_tag&.content_id == tool.id &&
+          !tool.use_1_3? && params[:assignment_id].present?
+      # Special case mostly for New Quizzes' benefit to make certain
+      # assignment_selection launches have more assignment context. Should not
+      # be used for LTI 1.3 as generate_post_payload_for_assignment is for
+      # resource link requests only and DeepLinkingRequest doesn't support
+      # resource_link claim. See efa31c0bfb1d
+      adapter.generate_post_payload_for_assignment(
+        assignment,
+        lti_grade_passback_api_url(tool),
+        blti_legacy_grade_passback_api_url(tool),
+        lti_turnitin_outcomes_placement_url(tool.id)
+      )
+    else
+      adapter.generate_post_payload
+    end
+  end
+  protected :generate_lti_launch_params
 
   def content_item_selection(tool, placement, message_type, opts = {})
     media_types = params.select do |param|
@@ -1821,6 +1874,16 @@ class ExternalToolsController < ApplicationController
 
     return unless authorized_action(assignment, @current_user, :read)
 
+    # Apply assignment overrides for the current user (critical for date-based locks)
+    assignment = AssignmentOverrideApplicator.assignment_overridden_for(assignment, @current_user) if @current_user
+
+    # For students, verify submit permission (includes: visible_to_user, locked_for, excused_for, enrollment_active)
+    if @context.grants_right?(@current_user, :participate_as_student) &&
+       !@context.grants_right?(@current_user, :manage_assignments) &&
+       !assignment.grants_right?(@current_user, :submit)
+      return render_unauthorized_action
+    end
+
     unless assignment.external_tool_tag
       @context.errors.add(:assignment_id, "The assignment must have an external tool tag")
       return render json: @context.errors, status: :bad_request
@@ -1989,7 +2052,8 @@ class ExternalToolsController < ApplicationController
                 oauth_compliant
                 is_rce_favorite
                 is_top_nav_favorite
-                unified_tool_id]
+                unified_tool_id
+                message_settings]
     attrs += [:allow_membership_service_access] if @context.root_account.feature_enabled?(:membership_service_for_lti_tools)
     attrs += [:estimated_duration_attributes] if @context.try(:horizon_course?)
 

@@ -128,6 +128,8 @@
 - verb: POST
   path: '/api/v1/accounts/:account_id/developer_keys/:developer_key_id/developer_key_account_bindings'
 - verb: GET
+  path: '/api/v1/accounts/:account_id/developer_keys/lookup_utids'
+- verb: GET
   path: '/api/v1/accounts/:account_id/enrollments/:id'
 - verb: GET
   path: '/api/v1/accounts/:account_id/external_tools'
@@ -230,9 +232,13 @@
 - verb: POST
   path: '/api/v1/accounts/:account_id/lti_registrations/:id/bind'
 - verb: GET
+  path: '/api/v1/accounts/:account_id/lti_registrations/:id/history'
+- verb: GET
   path: '/api/v1/accounts/:account_id/lti_registrations/:id/overlay_history'
 - verb: PUT
   path: '/api/v1/accounts/:account_id/lti_registrations/:id/reset'
+- verb: PUT
+  path: '/api/v1/accounts/:account_id/lti_registrations/:id/update_requests/:update_request_id/apply'
 - verb: GET
   path: '/api/v1/accounts/:account_id/lti_registrations/:registration_id/controls'
 - verb: DELETE
@@ -581,6 +587,28 @@
   path: '/api/v1/courses/:course_id/activity_stream'
 - verb: GET
   path: '/api/v1/courses/:course_id/activity_stream/summary'
+- verb: GET
+  path: '/api/v1/courses/:course_id/ai_experiences'
+- verb: POST
+  path: '/api/v1/courses/:course_id/ai_experiences'
+- verb: GET
+  path: '/api/v1/courses/:course_id/ai_experiences/:ai_experience_id/conversations'
+- verb: POST
+  path: '/api/v1/courses/:course_id/ai_experiences/:ai_experience_id/conversations'
+- verb: DELETE
+  path: '/api/v1/courses/:course_id/ai_experiences/:ai_experience_id/conversations/:id'
+- verb: POST
+  path: '/api/v1/courses/:course_id/ai_experiences/:ai_experience_id/conversations/:id/messages'
+- verb: DELETE
+  path: '/api/v1/courses/:course_id/ai_experiences/:id'
+- verb: GET
+  path: '/api/v1/courses/:course_id/ai_experiences/:id'
+- verb: PUT
+  path: '/api/v1/courses/:course_id/ai_experiences/:id'
+- verb: GET
+  path: '/api/v1/courses/:course_id/ai_experiences/:id/edit'
+- verb: GET
+  path: '/api/v1/courses/:course_id/ai_experiences/new'
 - verb: GET
   path: '/api/v1/courses/:course_id/all_quizzes'
 - verb: GET
@@ -1094,6 +1122,10 @@
 - verb: GET
   path: '/api/v1/courses/:course_id/groups'
 - verb: GET
+  path: '/api/v1/courses/:course_id/learning_mastery_gradebook_settings'
+- verb: PUT
+  path: '/api/v1/courses/:course_id/learning_mastery_gradebook_settings'
+- verb: GET
   path: '/api/v1/courses/:course_id/link_validation'
 - verb: POST
   path: '/api/v1/courses/:course_id/link_validation'
@@ -1273,6 +1305,8 @@
   path: '/api/v1/courses/:course_id/pages/:url_or_id/revisions/:revision_id'
 - verb: GET
   path: '/api/v1/courses/:course_id/pages/:url_or_id/revisions/latest'
+- verb: POST
+  path: '/api/v1/courses/:course_id/pages_ai/alt_text'
 - verb: GET
   path: '/api/v1/courses/:course_id/permissions'
 - verb: POST
@@ -1377,6 +1411,8 @@
   path: '/api/v1/courses/:course_id/reports/:report_type/:id'
 - verb: POST
   path: '/api/v1/courses/:course_id/reset_content'
+- verb: POST
+  path: '/api/v1/courses/:course_id/restore/:version_id'
 - verb: GET
   path: '/api/v1/courses/:course_id/root_outcome_group'
 - verb: POST
@@ -1481,6 +1517,8 @@
   path: '/api/v1/courses/:course_id/users'
 - verb: GET
   path: '/api/v1/courses/:course_id/users/:id'
+- verb: GET
+  path: '/api/v1/courses/:course_id/users/:id/lmgb_user_details'
 - verb: PUT
   path: '/api/v1/courses/:course_id/users/:user_id/last_attended'
 - verb: GET
@@ -1499,6 +1537,8 @@
   path: '/api/v1/courses/:course_id/youtube_migration/scan'
 - verb: POST
   path: '/api/v1/courses/:course_id/youtube_migration/scan'
+- verb: PUT
+  path: '/api/v1/courses/:course_id/youtube_migration/scan/:scan_id'
 - verb: DELETE
   path: '/api/v1/courses/:id'
 - verb: GET
@@ -1515,8 +1555,6 @@
   path: '/api/v1/courses/:id/late_policy'
 - verb: PUT
   path: '/api/v1/courses/:id/quizzes'
-- verb: GET
-  path: '/api/v1/crocodoc_session'
 - verb: GET
   path: '/api/v1/dashboard/dashboard_cards'
 - verb: DELETE
@@ -1835,6 +1873,8 @@
   path: '/api/v1/groups/:group_id/pages/:url_or_id/revisions/:revision_id'
 - verb: GET
   path: '/api/v1/groups/:group_id/pages/:url_or_id/revisions/latest'
+- verb: POST
+  path: '/api/v1/groups/:group_id/pages_ai/alt_text'
 - verb: GET
   path: '/api/v1/groups/:group_id/permissions'
 - verb: GET
@@ -1921,6 +1961,10 @@
   path: '/api/v1/media_objects/:media_object_id/media_tracks'
 - verb: PUT
   path: '/api/v1/media_objects/:media_object_id/media_tracks'
+- verb: DELETE
+  path: '/api/v1/microfrontends/release_tag_override'
+- verb: GET
+  path: '/api/v1/microfrontends/release_tag_override'
 - verb: DELETE
   path: '/api/v1/outcomes/:id'
 - verb: GET
@@ -2129,10 +2173,8 @@
   path: '/api/v1/support_helpers/asset_processor/bulk_resubmit'
 - verb: GET
   path: '/api/v1/support_helpers/asset_processor/submission_details'
-- verb: GET
-  path: '/api/v1/support_helpers/crocodoc/shard'
-- verb: GET
-  path: '/api/v1/support_helpers/crocodoc/submission'
+- verb: POST
+  path: '/api/v1/support_helpers/asset_processor_discussion/bulk_resubmit'
 - verb: GET
   path: '/api/v1/support_helpers/plagiarism_platform/add_service'
 - verb: GET

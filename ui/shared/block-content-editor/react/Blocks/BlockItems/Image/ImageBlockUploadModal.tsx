@@ -50,18 +50,22 @@ export const ImageBlockUploadModal = (props: {
       storeProps,
     )
     let fileName = undefined
+    let attachmentId = undefined
     if (selectedPanel !== 'URL') {
       const metaData = await loadFileMetaData(url)
       fileName = metaData?.attachment.display_name
+      attachmentId = metaData?.attachment.id
     }
+    const finalAltText = !decorativeImage && !altText && fileName ? fileName : altText
     setIsUploading(false)
-    props.onSelected({url, altText, decorativeImage, fileName})
+    props.onSelected({url, altText: finalAltText, decorativeImage, fileName, attachmentId})
   }
 
   return props.open ? (
     <UploadFile
       accept={'image/*'}
       trayProps={getRCSProps()!}
+      editor={undefined}
       label={'Upload Image'}
       panels={panels as any}
       onDismiss={props.onDismiss}

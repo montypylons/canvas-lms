@@ -20,8 +20,6 @@
 
 module Types
   class QueryType < ApplicationObjectType
-    graphql_name "Query"
-
     include GraphQL::Types::Relay::HasNodeField
 
     field :legacy_node, GraphQL::Types::Relay::Node, null: true do
@@ -167,25 +165,48 @@ module Types
                "Course IDs to get instructors for",
                required: true,
                prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("Course")
+      argument :observed_user_id, ID, "ID of the observed user", required: false
     end
-    def course_instructors_connection(course_ids:, **_args)
+    def course_instructors_connection(course_ids:, observed_user_id: nil, **_args)
       return Enrollment.none unless current_user
 
-      user_course_ids = current_user.enrollments.pluck(:course_id).uniq.map(&:to_s)
+      user_course_ids = if observed_user_id.present?
+                          observed_user = User.find_by(id: observed_user_id)
+                          return Enrollment.none unless observed_user
+
+                          current_user.cached_course_ids_for_observed_user(observed_user).map(&:to_s)
+                        else
+                          current_user.enrollments.active_by_date.pluck(:course_id).uniq.map(&:to_s)
+                        end
+
       course_ids = if course_ids.blank?
                      user_course_ids
                    else
                      course_ids & user_course_ids
                    end
 
-      # Get unique instructor enrollments grouped by user, ordered by course name
-      # to ensure consistent pagination and grouping by course
-      Enrollment.joins(:course, :user)
-                .where(course_id: course_ids)
-                .where(type: ["TeacherEnrollment", "TaEnrollment"])
-                .where(workflow_state: "active")
-                .where(courses: { workflow_state: "available" })
-                .order("courses.name ASC")
+      # Optimized approach: use a subquery for deduplication, then sort for display
+      # This eliminates one level of joins compared to the previous double-subquery approach
+      deduplicated_ids = Enrollment
+                         .joins(:enrollment_state)
+                         .current
+                         .where(course_id: course_ids)
+                         .where(type: ["TeacherEnrollment", "TaEnrollment"])
+                         .where(enrollment_states: { restricted_access: false, state: "active" })
+                         .where(courses: { workflow_state: "available" })
+                         .where("courses.conclude_at IS NULL OR courses.conclude_at > ?", Time.now.utc)
+                         .select("DISTINCT ON (enrollments.course_id, enrollments.user_id) enrollments.id")
+                         .order(
+                           Arel.sql("enrollments.course_id"),
+                           Arel.sql("enrollments.user_id"),
+                           Enrollment.state_by_date_rank_sql,
+                           Arel.sql("enrollments.id")
+                         )
+
+      # Now join to users and courses only once for the final result set
+      Enrollment.where(id: deduplicated_ids)
+                .joins(:user, :course)
+                .order("courses.name ASC, users.sortable_name ASC")
     end
 
     field :courses,

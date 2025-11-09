@@ -288,9 +288,11 @@ export default function BulkEditTable({
   const handleRevertClick = (assignment, override, event) => {
     // assuming the revert button is going away, so we reset focus to the prior input before that
     // happens.
-    const tableRow = event.target.closest('tr')
-    const rowInputs = tableRow.querySelectorAll('input')
-    if (rowInputs.length) rowInputs[rowInputs.length - 1].focus()
+    const tableRow = event.target.closest('[data-testid="bulk-edit-table-row"]')
+    if (tableRow) {
+      const rowInputs = tableRow.querySelectorAll('input')
+      if (rowInputs.length) rowInputs[rowInputs.length - 1].focus()
+    }
     clearOverrideEdits({assignmentId: assignment.id, overrideId: override.id})
   }
 
@@ -305,9 +307,15 @@ export default function BulkEditTable({
     // every row, and in a stacked layout it would appear on every row. But we want it to visually
     // be in the header in a fixed layout, so we're going to manually position it. Hard coding a
     // visual offset like this sucks and is brittle, but I'm not sure what else to do right now.
-    const [selectAllStyles, selectAllLabel, selectedHeader] =
+    const [selectAllStyles, selectAllLabel, selectedHeader, actionsHeader, notesHeader] =
       layoutProp === 'stacked'
-        ? [{}, I18n.t('Select all assignments'), I18n.t('Selected')]
+        ? [
+            {},
+            I18n.t('Select all assignments'),
+            I18n.t('Selected'),
+            I18n.t('Actions'),
+            I18n.t('Notes'),
+          ]
         : [
             {
               position: 'absolute',
@@ -316,6 +324,8 @@ export default function BulkEditTable({
             },
             <ScreenReaderContent>{I18n.t('Select all assignments')}</ScreenReaderContent>,
             <ScreenReaderContent>{I18n.t('Selected')}</ScreenReaderContent>,
+            <ScreenReaderContent>{I18n.t('Actions')}</ScreenReaderContent>,
+            <ScreenReaderContent>{I18n.t('Notes')}</ScreenReaderContent>,
           ]
 
     return (
@@ -345,10 +355,10 @@ export default function BulkEditTable({
                 {DATE_INPUT_META.lock_at.label}
               </Table.ColHeader>
               <Table.ColHeader id="actions" width={actionsWidthProp}>
-                <ScreenReaderContent>{I18n.t('Actions')}</ScreenReaderContent>
+                {actionsHeader}
               </Table.ColHeader>
               <Table.ColHeader id="note" width={noteWidthProp}>
-                <ScreenReaderContent>{I18n.t('Notes')}</ScreenReaderContent>
+                {notesHeader}
               </Table.ColHeader>
             </Table.Row>
           </Table.Head>

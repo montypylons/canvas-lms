@@ -23,7 +23,7 @@ import {setupServer} from 'msw/node'
 import {graphql, HttpResponse} from 'msw'
 import CourseWorkSummaryWidget from '../CourseWorkSummaryWidget'
 import type {BaseWidgetProps, Widget} from '../../../../types'
-import {defaultGraphQLHandlers} from '../../../../__tests__/testHelpers'
+import {defaultGraphQLHandlers, clearWidgetDashboardCache} from '../../../../__tests__/testHelpers'
 
 const mockCoursesData = [
   {
@@ -45,8 +45,7 @@ const mockStatisticsData = {
 const mockWidget: Widget = {
   id: 'course-work-widget',
   type: 'course_work_summary',
-  position: {col: 1, row: 1},
-  size: {width: 2, height: 1},
+  position: {col: 1, row: 1, relative: 1},
   title: "Today's course work",
 }
 
@@ -102,6 +101,7 @@ describe('CourseWorkSummaryWidget', () => {
   afterAll(() => server.close())
 
   beforeEach(() => {
+    clearWidgetDashboardCache()
     server.use(
       graphql.query('GetUserCourses', () => {
         return HttpResponse.json({

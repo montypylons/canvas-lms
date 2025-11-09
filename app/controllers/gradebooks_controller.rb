@@ -20,7 +20,6 @@
 
 class GradebooksController < ApplicationController
   include ActionView::Helpers::NumberHelper
-  include AssetProcessorReportHelper
   include GradebooksHelper
   include SubmissionCommentsHelper
   include KalturaHelper
@@ -140,12 +139,6 @@ class GradebooksController < ApplicationController
         json[:custom_grade_status_id] = submission.custom_grade_status_id if custom_gradebook_statuses_enabled
       end
 
-      if submission.user_can_read_grade?(@presenter.student, for_plagiarism: true)
-        json[:asset_processors] = asset_processors(assignment: submission.assignment)
-        json[:asset_reports] = @presenter.user_has_elevated_permissions? ? nil : asset_reports(submission:)
-        json[:submission_type] = submission.submission_type
-      end
-
       json[:submission_comments] = submission.visible_submission_comments.map do |comment|
         comment_map = {
           id: comment.id,
@@ -164,6 +157,7 @@ class GradebooksController < ApplicationController
           updated_at: comment.updated_at,
           comment: comment.comment,
           display_updated_at: datetime_string(comment.updated_at),
+          # this is causing multiple N+1 query problems and should be fixed
           is_read: comment.read?(@current_user) || (!@presenter.student_is_user? && !@presenter.user_an_observer_of_student?),
         }
         if comment.media_comment? && (media_object = SubmissionComment.serialize_media_comment(comment.media_comment_id))
@@ -202,6 +196,7 @@ class GradebooksController < ApplicationController
       rubrics: rubrics_json(@presenter.rubrics, @current_user, session, style: "full"),
       save_assignment_order_url: course_save_assignment_order_url(@context),
       student_outcome_gradebook_enabled: @context.feature_enabled?(:student_outcome_gradebook),
+      default_student_grade_summary_tab:,
       student_id: @presenter.student_id,
       students: @presenter.students.as_json(include_root: false),
       outcome_proficiency:,
@@ -799,7 +794,7 @@ class GradebooksController < ApplicationController
                sections: sections_json(visible_sections, @current_user, session, [], allow_sis_ids: true),
                settings: gradebook_settings(@context.global_id),
                settings_update_url: api_v1_course_gradebook_settings_update_url(@context),
-               IMPROVED_LMGB: root_account.feature_enabled?(:improved_lmgb),
+               IMPROVED_LMGB: @context.feature_enabled?(:improved_lmgb),
              },
              OUTCOME_AVERAGE_CALCULATION: root_account.feature_enabled?(:outcome_average_calculation),
              outcome_service_results_to_canvas: outcome_service_results_to_canvas_enabled?,
@@ -998,12 +993,19 @@ class GradebooksController < ApplicationController
         ).map { |c| { submission_comment: c } }
 
         if assignment.context.discussion_checkpoints_enabled?
-          submission_json[:has_sub_assignment_submissions] = assignment.has_sub_assignments
-          submission_json[:sub_assignment_submissions] = (assignment.has_sub_assignments &&
-            assignment.sub_assignments&.map do |sub_assignment|
-              sub_assignment_submission = sub_assignment.submissions.active.find_by(user_id: submission.user_id)
-              sub_assignnment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, @current_user, @session, @context)
-            end) || []
+          if assignment.has_sub_assignments
+            result = Checkpoints::SubAssignmentSubmissionSerializer.serialize(assignment:, user_id: submission.user_id)
+
+            sub_assignment_submissions = result[:submissions]&.filter_map do |sub_assignment_submission|
+              sub_assignment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, @current_user, @session, @context)
+            end
+
+            submission_json[:has_sub_assignment_submissions] = result[:has_active_submissions]
+            submission_json[:sub_assignment_submissions] = sub_assignment_submissions || []
+          else
+            submission_json[:has_sub_assignment_submissions] = false
+            submission_json[:sub_assignment_submissions] = []
+          end
         end
       end
       json
@@ -1090,6 +1092,7 @@ class GradebooksController < ApplicationController
         ENHANCED_RUBRICS_ENABLED: @context.feature_enabled?(:enhanced_rubrics),
         PLATFORM_SERVICE_SPEEDGRADER_ENABLED: platform_service_speedgrader_enabled,
         MANAGE_GRADES: @context.grants_right?(@current_user, session, :manage_grades),
+        VIEW_ALL_GRADES: @context.grants_right?(@current_user, session, :view_all_grades),
         RESTRICT_QUANTITATIVE_DATA_ENABLED: @context.restrict_quantitative_data?(@current_user),
         GRADE_BY_STUDENT_ENABLED: @context.root_account.feature_enabled?(:speedgrader_grade_by_student),
         STICKERS_ENABLED_FOR_ASSIGNMENT: @assignment.present? && @assignment.stickers_enabled?(@current_user),
@@ -1104,7 +1107,25 @@ class GradebooksController < ApplicationController
         MULTISELECT_FILTERS_ENABLED: multiselect_filters_enabled?,
         gradebook_section_filter_id: filtered_sections,
         COMMENT_BANK_PER_ASSIGNMENT_ENABLED: Account.site_admin.feature_enabled?(:comment_bank_per_assignment),
+        show_inactive_enrollments: gradebook_settings(@context.global_id)&.[]("show_inactive_enrollments") == "true",
+        show_concluded_enrollments: @context.completed? || gradebook_settings(@context.global_id)&.[]("show_concluded_enrollments") == "true",
       }
+
+      if @current_user && @real_current_user && @real_current_user != @current_user
+        masquerade_data = { is_fake_student: @current_user.fake_student? }
+
+        if @current_user.fake_student?
+          student_view_course = @current_user.all_courses.first
+          masquerade_data[:reset_student_url] = course_test_student_path(student_view_course) if student_view_course
+          masquerade_data[:leave_student_view_url] = course_student_view_path(student_view_course) if student_view_course
+        else
+          masquerade_data[:stop_masquerading_url] = user_masquerade_path(@real_current_user.id)
+          masquerade_data[:acting_as_user_name] = @current_user.short_name
+          masquerade_data[:acting_as_avatar_url] = @current_user.avatar_url if service_enabled?(:avatars)
+        end
+
+        env[:masquerade] = masquerade_data
+      end
       js_env(env)
 
       deferred_js_bundle :platform_speedgrader
@@ -1176,6 +1197,7 @@ class GradebooksController < ApplicationController
           enhanced_rubrics_enabled:,
           rubric_outcome_data: enhanced_rubrics_enabled ? rubric&.outcome_data : [],
           multiselect_filters_enabled: multiselect_filters_enabled?,
+          use_comment_library_v2: Account.site_admin.feature_enabled?(:use_comment_library_v2),
         }
         if grading_role_for_user == :moderator
           env[:provisional_select_url] = api_v1_select_provisional_grade_path(@context.id, @assignment.id, "{{provisional_grade_id}}")
@@ -1632,6 +1654,22 @@ class GradebooksController < ApplicationController
     gradebook_settings(context.global_id)["gradebook_view"]
   end
 
+  def course_default_student_gradebook_view
+    @context.settings[:default_student_gradebook_view]
+  end
+
+  def default_student_grade_summary_tab
+    course_default = course_default_student_gradebook_view
+    default_lmgb_enabled = @context.feature_enabled?(:default_to_learning_mastery_gradebook)
+    student_og_enabled = @context.feature_enabled?(:student_outcome_gradebook)
+
+    if default_lmgb_enabled && student_og_enabled && course_default
+      "outcomes"
+    else
+      nil # Let frontend decide
+    end
+  end
+
   def update_preferred_gradebook_view!(gradebook_view)
     if ["learning_mastery", "default"].include?(gradebook_view)
       @current_user.set_preference(:gradebook_version, "gradebook")
@@ -1814,6 +1852,7 @@ class GradebooksController < ApplicationController
     courses << @context if courses.empty?
 
     courses.map do |course|
+      # this is causing an N+1 query problem and should be fixed
       grading_period_set_id = GradingPeriodGroup.for_course(course)&.id
 
       {
@@ -1873,8 +1912,12 @@ class GradebooksController < ApplicationController
   end
 
   def track_update_metrics(params, submission)
-    if params.dig(:submission, :grade) && params["submission"]["grade"].to_s != submission.grade.to_s && params["originator"] == "speed_grader"
-      InstStatsd::Statsd.distributed_increment("speedgrader.submission.posted_grade")
+    if params.dig(:submission, :grade) && params["submission"]["grade"].to_s != submission.grade.to_s
+      if params["originator"] == "speed_grader"
+        InstStatsd::Statsd.distributed_increment("speedgrader.submission.posted_grade")
+      elsif params["originator"] == "platform_speed_grader"
+        InstStatsd::Statsd.distributed_increment("platform_speedgrader.submission.posted_grade")
+      end
     end
   end
 

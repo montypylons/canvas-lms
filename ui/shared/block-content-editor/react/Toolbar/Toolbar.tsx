@@ -17,49 +17,67 @@
  */
 
 import {View} from '@instructure/ui-view'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {PreviewButton} from './PreviewButton'
 import {RedoButton} from './RedoButton'
 import {UndoButton} from './UndoButton'
 import {AccessibilityCheckerButton} from './AccessibilityCheckerButton'
-import {useBlockContentEditorContext} from '../BlockContentEditorContext'
+import {ReorderBlocksButton} from './ReorderBlocksButton'
 import {useEditHistory} from '../hooks/useEditHistory'
+import {showScreenReaderAlert} from '../utilities/accessibility'
 import {List} from '@instructure/ui-list'
-import {useScope as createI18nScope} from '@canvas/i18n'
+import {useEditorMode} from '../hooks/useEditorMode'
+import {useAppSelector} from '../store'
+import {useGetBlocksCount} from '../hooks/useGetBlocksCount'
 
 const I18n = createI18nScope('block_content_editor')
 
 export const Toolbar = () => {
-  const {
-    editor: {mode, setMode},
-    accessibility: {a11yIssueCount, a11yIssues},
-  } = useBlockContentEditorContext()
+  const {a11yIssueCount, a11yIssues, toolbarReorder} = useAppSelector(state => ({
+    ...state.accessibility,
+    toolbarReorder: state.toolbarReorder,
+  }))
+  const {mode, setMode} = useEditorMode()
   const {undo, redo, canUndo, canRedo} = useEditHistory()
   const isPreviewMode = mode === 'preview'
+  const {blocksCount} = useGetBlocksCount()
 
-  const allIssues = Array.from(a11yIssues.values()).flat()
+  const handleUndo = () => {
+    undo()
+    showScreenReaderAlert(I18n.t('Last change undone'))
+  }
+
+  const handleRedo = () => {
+    redo()
+    showScreenReaderAlert(I18n.t('Last change redone'))
+  }
+
+  const menuItems = [
+    <PreviewButton
+      active={isPreviewMode}
+      onClick={() => setMode(isPreviewMode ? 'default' : 'preview')}
+    />,
+  ]
+  if (!isPreviewMode) {
+    menuItems.push(
+      <UndoButton active={canUndo} onClick={handleUndo} />,
+      <RedoButton active={canRedo} onClick={handleRedo} />,
+    )
+
+    if (toolbarReorder) {
+      menuItems.push(<ReorderBlocksButton blockCount={blocksCount} />)
+    }
+
+    const allIssues = Array.from(a11yIssues.values()).flat()
+    menuItems.push(<AccessibilityCheckerButton count={a11yIssueCount} issues={allIssues} />)
+  }
 
   return (
     <View shadow="resting" display="block">
-      <List role="toolbar" aria-label={I18n.t('Editor toolbar')} isUnstyled margin="none">
-        <List.Item>
-          <PreviewButton
-            active={isPreviewMode}
-            onClick={() => setMode(isPreviewMode ? 'default' : 'preview')}
-          />
-        </List.Item>
-        {!isPreviewMode && (
-          <>
-            <List.Item>
-              <UndoButton active={canUndo} onClick={undo} />
-            </List.Item>
-            <List.Item>
-              <RedoButton active={canRedo} onClick={redo} />
-            </List.Item>
-            <List.Item>
-              <AccessibilityCheckerButton count={a11yIssueCount} issues={allIssues} />
-            </List.Item>
-          </>
-        )}
+      <List isUnstyled margin="none">
+        {menuItems.map((item, index) => (
+          <List.Item key={index}>{item}</List.Item>
+        ))}
       </List>
     </View>
   )

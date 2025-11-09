@@ -30,6 +30,7 @@ describe WikiPagesController do
     context "when 'block_content_editor' feature is enabled" do
       before do
         @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
       end
 
       it "renders new page" do
@@ -45,7 +46,8 @@ describe WikiPagesController do
 
     context "when 'block_content_editor' feature is disabled" do
       before do
-        @course.account.disable_feature!(:block_content_editor)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
       end
 
       it "renders error page" do
@@ -70,53 +72,8 @@ describe WikiPagesController do
       expect(assigns[:js_env][:DISPLAY_SHOW_ALL_LINK]).to be(true)
     end
 
-    it "suppresses text editor preferences with block editor FF off" do
-      @user.set_preference(:text_editor_preference, "block_editor")
-      @course.account.enable_feature!(:block_editor)
-      get "index", params: { course_id: @course.id }
-      expect(assigns[:js_env][:text_editor_preference]).to eq "block_editor"
-      @course.account.disable_feature!(:block_editor)
-      get "index", params: { course_id: @course.id }
-      expect(assigns[:js_env].keys).not_to include(:text_editor_preference)
-    end
-
-    describe "js_env for EDITOR_FEATURE" do
-      context "when the block editor is enabled" do
-        it "sets EDITOR_FEATURE to block_editor" do
-          @course.account.enable_feature!(:block_editor)
-          get "index", params: { course_id: @course.id }
-          expect(assigns[:js_env][:EDITOR_FEATURE]).to eq :block_editor
-        end
-      end
-
-      context "when the block content editor is enabled" do
-        it "sets EDITOR_FEATURE to block_content_editor" do
-          @course.account.enable_feature!(:block_content_editor)
-          get "index", params: { course_id: @course.id }
-          expect(assigns[:js_env][:EDITOR_FEATURE]).to eq :block_content_editor
-        end
-      end
-
-      context "when both features are enabled" do
-        it "sets EDITOR_FEATURE to block_content_editor" do
-          @course.account.enable_feature!(:block_editor)
-          @course.account.enable_feature!(:block_content_editor)
-          get "index", params: { course_id: @course.id }
-          expect(assigns[:js_env][:EDITOR_FEATURE]).to eq :block_content_editor
-        end
-      end
-
-      context "when neither feature is enabled" do
-        it "sets EDITOR_FEATURE to nil" do
-          get "index", params: { course_id: @course.id }
-          expect(assigns[:js_env][:EDITOR_FEATURE]).to be_nil
-        end
-      end
-    end
-
     context "assign to differentiation tags" do
       before do
-        @course.account.enable_feature! :assign_to_differentiation_tags
         @course.account.tap do |a|
           a.settings[:allow_assign_to_differentiation_tags] = { value: true }
           a.save!
@@ -283,7 +240,6 @@ describe WikiPagesController do
 
       context "assign to differentiation tags" do
         before do
-          @course.account.enable_feature! :assign_to_differentiation_tags
           @course.account.tap do |a|
             a.settings[:allow_assign_to_differentiation_tags] = { value: true }
             a.save!
@@ -376,6 +332,119 @@ describe WikiPagesController do
           get "show", params: { course_id: @course.id, id: @page.url }
           expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
         end
+      end
+    end
+  end
+
+  describe "set_block_content_editor_ai_alt_text_js_env" do
+    before do
+      @page = @course.wiki_pages.create!(title: "test page", body: "test content")
+      stub_const("CedarClient", Class.new do
+        def enabled?
+          true
+        end
+      end)
+      allow(CedarClient).to receive(:enabled?).and_return(true)
+    end
+
+    context "when all conditions are met" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to course URL in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expected_url = "/api/v1/courses/#{@course.id}/pages_ai/alt_text"
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to eq(expected_url)
+      end
+    end
+
+    context "when all conditions are met for a group context" do
+      before do
+        @group = group_model(context: @course)
+        @group_page = @group.wiki_pages.create!(title: "test group page", body: "test content")
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to group URL in js_env" do
+        get "show", params: { group_id: @group.id, id: @group_page.url }
+        expected_url = "/api/v1/groups/#{@group.id}/pages_ai/alt_text"
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to eq(expected_url)
+      end
+    end
+
+    context "when block_content_editor_ai_alt_text feature is disabled" do
+      before do
+        Account.site_admin.disable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when block content editor is disabled in context" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.disable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when CedarClient is not enabled" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(false)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when CedarClient is not available" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:try).with(:enabled?).and_return(nil)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when context doesn't support block content editor" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        allow(@course).to receive(:try).with(:block_content_editor_enabled?).and_return(nil)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
       end
     end
   end

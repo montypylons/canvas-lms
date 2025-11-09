@@ -18,17 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class PeerReview::PeerReviewUpdaterService < PeerReview::PeerReviewCommonService
-  def initialize(
-    parent_assignment: nil,
-    points_possible: nil,
-    grading_type: nil,
-    due_at: nil,
-    unlock_at: nil,
-    lock_at: nil
-  )
-    super
-  end
-
   def call
     run_validations
     updated_peer_review_sub_assignment = update_peer_review_sub_assignment
@@ -39,10 +28,10 @@ class PeerReview::PeerReviewUpdaterService < PeerReview::PeerReviewCommonService
   private
 
   def run_validations
-    validate_parent_assignment
-    validate_assignment_submission_types
-    validate_feature_enabled
-    validate_peer_review_sub_assignment_exists
+    validate_parent_assignment(@parent_assignment)
+    validate_assignment_submission_types(@parent_assignment)
+    validate_feature_enabled(@parent_assignment)
+    validate_peer_review_sub_assignment_exists(@parent_assignment)
   end
 
   def update_peer_review_sub_assignment

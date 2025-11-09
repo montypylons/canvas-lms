@@ -18,6 +18,7 @@
 
 import React, {useState} from 'react'
 import {ToolbarButton} from './ToolbarButton'
+import {AccessibleContent} from '@instructure/ui-a11y-content'
 import {IconA11yLine} from '@instructure/ui-icons'
 import {Badge} from '@instructure/ui-badge'
 import {useScope as createI18nScope} from '@canvas/i18n'
@@ -34,14 +35,7 @@ interface AccessibilityButtonProps {
 export const AccessibilityCheckerButton = ({count = 0, issues = []}: AccessibilityButtonProps) => {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false)
 
-  const screenReaderLabel = I18n.t(
-    {
-      one: 'Accessibility issues (%{count} issue)',
-      other: 'Accessibility issues (%{count} issues)',
-      zero: 'Accessibility issues',
-    },
-    {count},
-  )
+  const screenReaderLabel = I18n.t('Accessibility Checker')
 
   const handleButtonClick = () => {
     setIsPopoverOpen(true)
@@ -60,28 +54,47 @@ export const AccessibilityCheckerButton = ({count = 0, issues = []}: Accessibili
       onHideContent={handleHideContent}
       issues={issues}
       renderTrigger={() => (
-        <Badge
-          elementRef={el => {
-            if (!el) {
-              return
-            }
+        // div wrapper is needed to pass aria-expanded
+        <div>
+          <Badge
+            elementRef={el => {
+              if (!el) {
+                return
+              }
 
-            // Ensure not hidden behind focus outline
-            const parentSpan = el as HTMLSpanElement
-            const innerSpan = parentSpan.querySelector(':scope > span') as HTMLSpanElement
-            innerSpan.style.zIndex = '11'
-          }}
-          count={count}
-          countUntil={99}
-        >
-          <ToolbarButton
-            color={isPopoverOpen ? 'primary' : 'secondary'}
-            screenReaderLabel={screenReaderLabel}
-            renderIcon={<IconA11yLine />}
-            onClick={handleButtonClick}
-            data-testid="accessibility-button"
-          />
-        </Badge>
+              // Ensure not hidden behind focus outline
+              const parentSpan = el as HTMLSpanElement
+              const innerSpan = parentSpan.querySelector(':scope > span') as HTMLSpanElement
+              innerSpan.style.zIndex = '11'
+            }}
+            count={count}
+            countUntil={99}
+            formatOutput={function (formattedCount) {
+              return (
+                <AccessibleContent
+                  alt={I18n.t(
+                    {
+                      one: 'There is %{count} accessibility issue',
+                      other: 'There are %{count} accessibility issues',
+                      zero: '',
+                    },
+                    {count},
+                  )}
+                >
+                  {formattedCount}
+                </AccessibleContent>
+              )
+            }}
+          >
+            <ToolbarButton
+              color={isPopoverOpen ? 'primary' : 'secondary'}
+              screenReaderLabel={screenReaderLabel}
+              renderIcon={<IconA11yLine />}
+              onClick={handleButtonClick}
+              data-testid="accessibility-button"
+            />
+          </Badge>
+        </div>
       )}
     />
   )

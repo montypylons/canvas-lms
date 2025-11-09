@@ -93,6 +93,7 @@ module Lti
           },
           activity: {
             id: @params[:assignment].lti_context_id,
+            title: @params[:assignment].title,
           },
           contribution: {
             id: discussion_entry.lti_id,
@@ -136,6 +137,17 @@ module Lti
         {
           assignment: @params[:assignment]
         }
+      end
+
+      def info_log(tool)
+        discussion_entry_version = @params[:discussion_entry_version]
+        super.merge(
+          assignment_id: @params[:assignment].id,
+          discussion_entry_id: discussion_entry_version.discussion_entry_id,
+          contribution_status: @params[:contribution_status],
+          asset_count: @params[:assets].length,
+          asset_uuids: @params[:assets].pluck(:asset_id)
+        )
       end
 
       private

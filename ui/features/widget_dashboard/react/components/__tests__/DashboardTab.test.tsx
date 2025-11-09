@@ -22,6 +22,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {setupServer} from 'msw/node'
 import {graphql, HttpResponse} from 'msw'
 import DashboardTab from '../DashboardTab'
+import {clearWidgetDashboardCache} from '../../__tests__/testHelpers'
 type Props = Record<string, never> // DashboardTab has no props
 
 const mockStatisticsData = {
@@ -210,6 +211,10 @@ describe('DashboardTab', () => {
     server.listen({onUnhandledRequest: 'error'})
   })
 
+  beforeEach(() => {
+    clearWidgetDashboardCache()
+  })
+
   afterEach(() => {
     server.resetHandlers()
     if (queryClient) {
@@ -231,11 +236,11 @@ describe('DashboardTab', () => {
     cleanup()
   })
 
-  it('should render widget grid with course work widget', async () => {
+  it('should render widget columns with course work widget', async () => {
     const {getByTestId, cleanup} = setup()
 
     await waitFor(() => {
-      expect(getByTestId('widget-grid')).toBeInTheDocument()
+      expect(getByTestId('widget-columns')).toBeInTheDocument()
       expect(getByTestId('widget-course-work-combined-widget')).toBeInTheDocument()
     })
 
@@ -246,7 +251,7 @@ describe('DashboardTab', () => {
     const {getByText, cleanup} = setup()
 
     await waitFor(() => {
-      expect(getByText('Course Work')).toBeInTheDocument()
+      expect(getByText('Course work')).toBeInTheDocument()
     })
 
     cleanup()

@@ -129,14 +129,20 @@ module Plannable
           rel_hash = nil
         end
       end
-      rel_array.reduce(object) { |val, key| val&.send(key) }
+      rel_array.reduce(object) { |val, key| val.try(key) || val.try(:first).try(key) }
     end
 
     # Grabs the value to use for the bookmark & comparison
     def column_value(object, col)
       case col
       when Array
-        object.attributes.values_at(*col).compact.first # coalesce nulls
+        # Check if array contains complex types (Hash) or just simple attribute names
+        if col.any?(Hash)
+          # For arrays with Hash/complex types, recursively get each value
+          col.filter_map { |c| c.is_a?(Hash) ? association_value(object, c) : object.attributes[c] }.first
+        else
+          object.attributes.values_at(*col).compact.first
+        end
       when Hash
         association_value(object, col)
       else

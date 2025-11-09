@@ -500,109 +500,6 @@ class ActiveRecord::Base
     Arel.sql("#{column} #{direction.to_s.upcase}#{clause}".strip)
   end
 
-  # set up class-specific getters/setters for a polymorphic association, e.g.
-  #   belongs_to :context, polymorphic: [:course, :account]
-  def self.belongs_to(name, scope = nil, **options)
-    if options[:polymorphic] == true
-      raise "Please pass an array of valid types for polymorphic associations. Use exhaustive: false if you really don't want to validate them"
-    end
-
-    polymorphic_prefix = options.delete(:polymorphic_prefix)
-    exhaustive = options.delete(:exhaustive)
-
-    reflection = super[name.to_sym]
-
-    if name.to_s == "developer_key"
-      reflection.instance_eval do
-        def association_class
-          DeveloperKey::CacheOnAssociation
-        end
-      end
-    end
-
-    include Canvas::RootAccountCacher if name.to_s == "root_account"
-    Canvas::AccountCacher.apply_to_reflections(self)
-
-    if reflection.options[:polymorphic].is_a?(Array) ||
-       reflection.options[:polymorphic].is_a?(Hash)
-      reflection.options[:exhaustive] = exhaustive
-      reflection.options[:polymorphic_prefix] = polymorphic_prefix
-      add_polymorph_methods(reflection)
-    end
-    reflection
-  end
-
-  def self.canonicalize_polymorph_list(list)
-    specifics = []
-    Array.wrap(list).each do |name|
-      if name.is_a?(Hash)
-        specifics.concat(name.to_a)
-      else
-        specifics << [name, name.to_s.camelize]
-      end
-    end
-    specifics
-  end
-
-  def self.add_polymorph_methods(reflection)
-    unless @polymorph_module
-      @polymorph_module = Module.new
-      include(@polymorph_module)
-    end
-
-    specifics = canonicalize_polymorph_list(reflection.options[:polymorphic])
-
-    unless reflection.options[:exhaustive] == false
-      specific_classes = specifics.map(&:last).sort
-      validates reflection.foreign_type, inclusion: { in: specific_classes }, allow_nil: true
-
-      @polymorph_module.class_eval <<~RUBY, __FILE__, __LINE__ + 1
-        def #{reflection.name}=(record)
-          if record && [#{specific_classes.join(", ")}].none? { |klass| record.is_a?(klass) }
-            message = "one of #{specific_classes.join(", ")} expected, got \#{record.class}"
-            raise ActiveRecord::AssociationTypeMismatch, message
-          end
-          super
-        end
-      RUBY
-    end
-
-    if reflection.options[:polymorphic_prefix] == true
-      prefix = "#{reflection.name}_"
-    elsif reflection.options[:polymorphic_prefix]
-      prefix = "#{reflection.options[:polymorphic_prefix]}_"
-    end
-
-    specifics.each do |(name, class_name)|
-      # ensure we capture this class's table name
-      table_name = self.table_name
-      belongs_to(:"#{prefix}#{name}",
-                 -> { where(table_name => { reflection.foreign_type => class_name }) },
-                 foreign_key: reflection.foreign_key,
-                 class_name:) # rubocop:disable Rails/ReflectionClassName
-
-      correct_type = "#{reflection.foreign_type} && self.class.send(:compute_type, #{reflection.foreign_type}) <= #{class_name}"
-
-      @polymorph_module.class_eval <<~RUBY, __FILE__, __LINE__ + 1
-        def #{prefix}#{name}
-          #{reflection.name} if #{correct_type}
-        end
-
-        def #{prefix}#{name}=(record)
-          # we don't want to unset it if it's currently some other type, i.e.
-          # foo.bar = Bar.new
-          # foo.baz = nil
-          # foo.bar.should_not be_nil
-          return if record.nil? && !(#{correct_type})
-          association(:#{prefix}#{name}).send(:raise_on_type_mismatch!, record) if record
-
-          self.#{reflection.name} = record
-        end
-
-      RUBY
-    end
-  end
-
   # Returns the class for the provided +name+.
   #
   # It is used to find the class correspondent to the value stored in the polymorphic type column.
@@ -832,6 +729,22 @@ class ActiveRecord::Base
 end
 
 module UsefulFindInBatches
+  def apply_limits(*args)
+    if args.count == 4
+      super(args[0], Array(primary_key), args[1], args[2], args[3])
+    else
+      super
+    end
+  end
+
+  def build_batch_orders(*args)
+    if args.count == 1
+      super(Array(primary_key), args[0])
+    else
+      super
+    end
+  end
+
   # add the strategy param
   def find_each(start: nil, finish: nil, order: :asc, **, &block)
     if block
@@ -865,7 +778,7 @@ module UsefulFindInBatches
 
   def in_batches(strategy: nil, start: nil, finish: nil, order: :asc, **kwargs, &block)
     unless block
-      return ActiveRecord::Batches::BatchEnumerator.new(strategy:, start:, relation: self, **kwargs)
+      return ActiveRecord::Batches::BatchEnumerator.new(strategy:, start:, relation: self, cursor: primary_key, **kwargs)
     end
 
     unless [:asc, :desc].include?(order)
@@ -882,6 +795,7 @@ module UsefulFindInBatches
       return activate { |r| r.call_super(:in_batches, UsefulFindInBatches, start:, finish:, order:, **kwargs, &block) }
     end
 
+    kwargs.delete(:cursor) if ::Rails.version >= "8.0"
     kwargs.delete(:error_on_ignore)
     activate do |r|
       r.send(:"in_batches_with_#{strategy}", start:, finish:, order:, **kwargs, &block)
@@ -1158,7 +1072,7 @@ module UsefulBatchEnumerator
   def initialize(strategy: nil, **kwargs)
     @strategy = strategy
     @kwargs = kwargs.except(:relation)
-    super(**kwargs.slice(:of, :start, :finish, :relation))
+    super(**kwargs.slice(:of, :start, :finish, :relation, :cursor))
   end
 
   def each_record(&block)
@@ -1477,7 +1391,7 @@ module UpdateAndDeleteWithJoins
 
     stmt = Arel::UpdateManager.new
 
-    stmt.set Arel.sql(@klass.send(:sanitize_sql_for_assignment, updates))
+    stmt.set Arel.sql(klass.send(:sanitize_sql_for_assignment, updates))
     from = from_clause.value
     stmt.table(from ? Arel::Nodes::SqlLiteral.new(from) : table)
     stmt.key = table[primary_key]
@@ -1873,6 +1787,10 @@ module ExistenceInversions
           result[1].last.delete(:if_exists)
         end
         result
+      end
+
+      def invert_rename_constraint(table_name, old_name, new_name, if_exists: false)
+        [:rename_constraint, [table_name, new_name, old_name, { if_exists: if_exists }]]
       end
     RUBY
   end
@@ -2315,3 +2233,38 @@ end
 ActiveRecord::Migrator.singleton_class.include(WithMigrationAdvisoryLock)
 
 ActiveRecord::Enum.prepend(Extensions::ActiveRecord::Enum)
+
+module ActiveModelDirtyRails80
+  # This applies https://github.com/rails/rails/commit/7d69f241bfbcc07ae7491bd5fcfa6def2cf7ac21
+  # which is only available in Rails 8.1
+  def init_attributes(other) # :nodoc:
+    attrs = super
+    if self.class.respond_to?(:_default_attributes)
+      self.class._default_attributes.map do |attr|
+        attr.with_value_from_user(attrs.fetch_value(attr.name))
+      end
+    else
+      attrs
+    end
+  end
+end
+
+ActiveModel::Dirty.prepend(ActiveModelDirtyRails80) if Rails.version >= "8.0" && Rails.version < "8.1"
+
+module ValidateDateTimeFormat
+  def _write_attribute(attr_name, value)
+    if value.present? && (value.is_a?(Numeric) || (value.is_a?(String) && value.match?(/^\d+$/))) && self.class.columns_hash[attr_name.to_s]&.type&.in?([:datetime, :timestamp])
+      errors.add(attr_name, "must be in ISO8601 format")
+      return
+    end
+
+    super
+  end
+end
+ActiveRecord::Base.prepend(ValidateDateTimeFormat)
+
+ActiveRecord::Associations::ClassMethods.prepend(Extensions::ActiveRecord::PolymorphicAssociations::ClassMethods)
+ActiveRecord::PredicateBuilder::PolymorphicArrayValue.prepend(Extensions::ActiveRecord::PolymorphicAssociations::PolymorphicArrayValue)
+
+ActiveRecord::ConnectionAdapters::SchemaStatements.prepend(Extensions::ActiveRecord::SchemaStatements::PolymorphicAssociations)
+ActiveRecord::ConnectionAdapters::TableDefinition.prepend(Extensions::ActiveRecord::SchemaStatements::PolymorphicAssociations::TableDefinition)

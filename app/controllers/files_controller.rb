@@ -22,7 +22,6 @@
 # An API for managing files and folders
 # See the File Upload Documentation for details on the file upload workflow.
 #
-# @deprecated_response_field uuid NOTICE 2025-05-07 EFFECTIVE 2025-08-05
 #
 # @model File
 #     {
@@ -32,10 +31,6 @@
 #         "id": {
 #           "example": 569,
 #           "type": "integer"
-#         },
-#         "uuid": {
-#           "example": "SUj23659sdfASF35h265kf352YTdnC4",
-#           "type": "string"
 #         },
 #         "folder_id": {
 #           "example": 4207,
@@ -54,7 +49,7 @@
 #           "type": "string"
 #         },
 #         "url": {
-#           "example": "http://www.example.com/files/569/download?download_frd=1&verifier=c6HdZmxOZa0Fiin2cbvZeI8I5ry7yqD7RChQzb6P",
+#           "example": "http://www.example.com/files/569/download?download_frd=1",
 #           "type": "string"
 #         },
 #         "size": {
@@ -139,10 +134,8 @@ class FilesController < ApplicationController
 
   before_action :require_user, only: :create_pending
   before_action :require_context, except: %i[
-    assessment_question_show
     image_thumbnail
     show_thumbnail
-    image_thumbnail_plain
     create_pending
     show
     api_create
@@ -178,7 +171,6 @@ class FilesController < ApplicationController
   before_action :check_limited_access_contexts, only: %i[index]
   before_action :check_limited_access_for_students, only: %i[api_index]
   before_action :forbid_api_calls_for_limited_access_students, only: :api_show
-  before_action :check_restricted_file_access_for_students, only: %i[show]
 
   def forbid_api_calls_for_limited_access_students
     if @current_user&.student_in_limited_access_account? && request.referer.nil?
@@ -476,17 +468,6 @@ class FilesController < ApplicationController
 
       render html: "".html_safe, layout: true
     end
-  end
-
-  def assessment_question_show
-    @context = AssessmentQuestion.find(params[:assessment_question_id])
-    @attachment = @context.attachments.find(params[:id])
-    @skip_crumb = true
-    if @attachment.deleted?
-      flash[:notice] = t "notices.deleted", "The file %{display_name} has been deleted", display_name: @attachment.display_name
-      return redirect_to dashboard_url
-    end
-    show
   end
 
   # @API Get public inline preview url
@@ -1634,49 +1615,36 @@ class FilesController < ApplicationController
   def image_thumbnail
     cancel_cache_buster
 
-    no_cache = !!Canvas::Plugin.value_to_boolean(params[:no_cache])
-
     # include authenticator fingerprint so we don't redirect to an
     # authenticated thumbnail url for the wrong user
-    cache_key = ["thumbnail_url2", params[:uuid], params[:size], file_authenticator.fingerprint].cache_key
-    url, instfs = Rails.cache.read(cache_key)
-    if !url || no_cache
-      attachment = Attachment.active.where(id: params[:id], uuid: params[:uuid]).first if params[:id].present?
-      thumb_opts = params.slice(:size)
-      thumb_opts[:fallback_url] = @access_verifier[:fallback_url] if @access_verifier
-      url = authenticated_thumbnail_url(attachment, options: thumb_opts)
-      if url
-        instfs = attachment.instfs_hosted?
-        # only cache for half the time because of use_consistent_iat
-        Rails.cache.write(cache_key, [url, instfs], expires_in: (attachment.url_ttl / 2))
-      end
-    end
-
-    if url && instfs && file_location_mode?
-      render_file_location(url)
-    else
-      redirect_to(url || "/images/no_pic.gif")
-    end
-  end
-
-  def image_thumbnail_plain
-    cancel_cache_buster
-
-    # include authenticator fingerprint so we don't redirect to an
-    # authenticated thumbnail url for the wrong user
-    cache_key = ["attachment_user_auth", params[:id], file_authenticator.fingerprint].cache_key
+    cache_key = if params[:uuid].present?
+                  ["attachment_user_auth_old", params[:uuid], file_authenticator.fingerprint].cache_key
+                else
+                  ["attachment_user_auth", params[:id], file_authenticator.fingerprint].cache_key
+                end
     authed, attachment = Rails.cache.read(cache_key)
     unless attachment
-      attachment = Attachment.active.find_by(id: params[:id]) if params[:id].present?
-      if attachment
+      if params[:uuid].present?
+        attachment = Attachment.active.where(id: params[:id], uuid: params[:uuid]).first if params[:id].present?
+        authed = attachment.present?
+      elsif params[:id].present?
+        attachment = Attachment.active.find_by(id: params[:id])
+        authed = access_allowed(attachment:, user: @current_user, access_type: :download, no_error_on_failure: true) if attachment
+      end
+      if attachment && authed
         # We assume that if you can see/download the attachment, you can see/download the thumbnail
-        authed = access_allowed(attachment:, user: @current_user, access_type: :download, no_error_on_failure: true)
         Rails.cache.write(cache_key, [authed, attachment], expires_in: 5.minutes)
       end
     end
 
-    thumb_opts = params.slice(:size, :location)
+    thumb_opts = { size: params[:size] }
     thumb_opts[:fallback_url] = @access_verifier[:fallback_url] if @access_verifier
+    if authed && attachment.context_type == "User"
+      avatar_url = attachment.context&.avatar_image_url
+      avatar_params = avatar_url && Rails.application.routes.recognize_path(avatar_url)
+      avatar_id = avatar_params && (avatar_params[:file_id] || avatar_params[:attachment_id] || avatar_params[:id])
+      thumb_opts[:no_jti] = avatar_id && Shard.integral_id_for(avatar_id) == attachment.id
+    end
     url = authenticated_thumbnail_url(attachment, options: thumb_opts) if attachment && authed
     if url && attachment.instfs_hosted? && file_location_mode?
       render_file_location(url)
@@ -1760,7 +1728,7 @@ class FilesController < ApplicationController
   end
 
   def strong_attachment_params
-    params.require(:attachment).permit(:display_name, :locked, :lock_at, :unlock_at, :uploaded_data, :hidden, :visibility_level)
+    params.require(:attachment).permit(:display_name, :locked, :lock_at, :unlock_at, :uploaded_data, :hidden, :visibility_level) # rubocop:disable Rails/StrongParametersExpect
   end
 
   def redirect_for_inline?(sf_verifier)

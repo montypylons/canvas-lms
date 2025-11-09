@@ -25,6 +25,20 @@ require_relative "../helpers/k5_common"
 describe User do
   include K5Common
 
+  describe "access_tokens association" do
+    it "includes tokens that have passed permanent_expires_at (expired?)" do
+      user = user_model
+      active_token = user.access_tokens.create!(purpose: "active")
+      expired_token = user.access_tokens.create!(purpose: "expired", permanent_expires_at: 1.hour.ago)
+
+      expect(expired_token.expired?).to be true
+      expect(active_token.expired?).to be false
+
+      ids = user.access_tokens.reload.pluck(:id)
+      expect(ids).to include(active_token.id, expired_token.id)
+    end
+  end
+
   context "validation" do
     it "creates a new instance given valid attributes" do
       expect(user_model).to be_valid
@@ -1029,8 +1043,6 @@ describe User do
       user_factory
       course_factory(course_name: "course_factory", active_course: true).enroll_user(@user, "StudentEnrollment", enrollment_state: "active")
       enable_cache(:redis_cache_store) do
-        expect(Account).to receive(:where).with(id: nil).and_call_original.once # update_account_associations from enrollment deletion
-        expect(Account).to receive(:where).with(id: []).and_call_original.exactly(3).times
         3.times { @user.course_creating_teacher_enrollment_accounts }
         3.times { @user.course_creating_student_enrollment_accounts }
         Enrollment.last.destroy
@@ -2386,6 +2398,30 @@ describe User do
       u.save!
       expect(u.sortable_name).to eq "St. Clair,"
     end
+  end
+
+  it "assigns the name to the short_name if short_name is blank" do
+    u = User.new
+    u.name = "Cody Cutrer"
+    u.save!
+    expect(u.short_name).to eq "Cody Cutrer"
+
+    u.name = "Bracken Mosbacker"
+    u.short_name = "Bracken"
+    u.save!
+    expect(u.short_name).to eq "Bracken"
+  end
+
+  it "assigns the short_name to the name if name is blank" do
+    u = User.new
+    u.short_name = "Cody Cutrer"
+    u.save!
+    expect(u.name).to eq "Cody Cutrer"
+
+    u.short_name = "Bracken"
+    u.name = "Bracken Mosbacker"
+    u.save!
+    expect(u.name).to eq "Bracken Mosbacker"
   end
 
   context "group_member_json" do

@@ -18,84 +18,22 @@
 
 import {render} from '@testing-library/react'
 import {BlockContentEditor} from '../BlockContentEditor'
-import {useBlockContentEditorContext} from '../BlockContentEditorContext'
-
-const mockPreviewComponent = jest.fn()
-jest.mock('../Preview/BlockContentPreview', () => ({
-  BlockContentPreview: (props: any) => mockPreviewComponent(props),
-}))
-
-const mockEditorContentComponent = jest.fn()
-jest.mock('../BlockContentEditorContent', () => ({
-  BlockContentEditorContent: (props: any) => mockEditorContentComponent(props),
-}))
-
-jest.mock('../layout/BlockContentEditorLayout', () => ({
-  BlockContentEditorLayout: ({editor}: {editor: React.ReactNode}) => (
-    <div data-testid="block-content-editor-layout">{editor}</div>
-  ),
-}))
-
-jest.mock('../Toolbar', () => ({
-  Toolbar: () => null,
-}))
-
-jest.mock('../BlockContentEditorContext', () => ({
-  __esModule: true,
-  BlockContentEditorContext: ({children}: {children: React.ReactNode}) => <div>{children}</div>,
-  useBlockContentEditorContext: jest.fn(),
-}))
-
-function setupMockContext(mode: string = 'default') {
-  ;(useBlockContentEditorContext as jest.Mock).mockReturnValue({
-    editor: {
-      mode,
-      setMode: jest.fn(),
-    },
-    addBlockModal: {
-      isOpen: false,
-      openModal: jest.fn(),
-      closeModal: jest.fn(),
-    },
-    settingsTray: {
-      isOpen: false,
-      openTray: jest.fn(),
-      closeTray: jest.fn(),
-    },
-  })
-}
 
 describe('BlockContentEditor', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    setupMockContext()
   })
 
   it('does not break when onInit is null', () => {
     expect(() => {
-      render(<BlockContentEditor data={null} onInit={null} />)
+      render(
+        <BlockContentEditor
+          data={null}
+          onInit={null}
+          aiAltTextGenerationURL="/api/v1/courses/1/pages/ai/alt_text"
+          toolbarReorder={false}
+        />,
+      )
     }).not.toThrow()
-  })
-
-  describe('when editor mode is "default"', () => {
-    beforeEach(() => {
-      setupMockContext('default')
-    })
-
-    it('renders the BlockContentEditorContent component', () => {
-      render(<BlockContentEditor data={null} onInit={null} />)
-      expect(mockEditorContentComponent).toHaveBeenCalled()
-    })
-  })
-
-  describe('when editor mode is "preview"', () => {
-    beforeEach(() => {
-      setupMockContext('preview')
-    })
-
-    it('renders the BlockContentPreview component', () => {
-      render(<BlockContentEditor data={null} onInit={null} />)
-      expect(mockPreviewComponent).toHaveBeenCalled()
-    })
   })
 })

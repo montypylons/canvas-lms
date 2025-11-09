@@ -906,6 +906,10 @@ uk:
             start: 
               parameters: 
                 header: "Початок:"
+    edp_student_activity_csv_parameters: 
+      custom_reports: 
+        edp: 
+          all_terms: "Усі періоди"
     embry_riddle_activity_report_csv_parameters: 
       account_reports: 
         embry_riddle: 
@@ -1962,6 +1966,7 @@ uk:
   all_dates_fields_must_be_present_and_formatted_cor_3a0fe925: "Всі поля с датами мають бути присутні і правильно відформатовані"
   all_day_fb42c4fc: "Весь день"
   all_finished_time_to_publish_your_course_click_the_b6f07217: "Все закінчили? Час опублікувати свій курс! Натисніть на кнопку нижче, щоб зробити курс офіційно доступним! Публікація дозволить користувачам почати вивчати курс."
+  all_grades_for_students_in_this_course_will_no_lon_a32bf5d4: "Усі оцінки цього курсу більше не будуть відображатися для студентів. Ви можете отримати оцінку пізніше шляхом re-cross-listing курсу, але в той же час оцінки для цих студентів будуть прийматися з оригінального курсу."
   all_grading_period_sets_must_have_a_title_799538f: "Усі налаштування періоду оцінювання повинні мати назву"
   all_grading_periods_77974940: "Усі періоди оцінювання"
   all_grading_periods_must_have_a_title_a1a38d87: "Всі періоди оцінювання повинні мати назву"
@@ -2143,6 +2148,7 @@ uk:
   announcements_a4b8ed4a: Оголошення
   announcements_list_c75fc413: "Перелік оголошень"
   announcements_tutorial_tray_994287d6: "Вказівки до оголошень"
+  anonymity_1cfb09ca: Анонімність
   anonymize_all_annotations_made_by_instructors_on_s_4f2b70a5: "Зробити анонімними всі коментарі, зроблені інструкторами, або подання на завдання у SpeedGrader"
   anonymous_e1b8ad27: Анонімний
   anonymous_grading_ccb5045c: "Анонімне оцінювання "
@@ -2259,6 +2265,7 @@ uk:
   are_you_sure_you_want_to_cancel_changes_you_made_m_c5210496: "Ви впевнені, що хочете скасувати? Зроблені зміни можуть бути не збережені."
   are_you_sure_you_want_to_cancel_your_appointment_w_dbbd27eb: "Ви впевнені, що хочете скасувати зустріч з %{name}?"
   are_you_sure_you_want_to_copy_to_the_final_mark_th_28a7e7b3: "Ви впевнені, що хочете скопіювати до підсумкового маркування? Це  перезапише існуючу позначку."
+  are_you_sure_you_want_to_de_cross_list_this_sectio_fae8a399: "Ви впевнені, що хочете de-cross-list цього розділу?"
   are_you_sure_you_want_to_deactivate_this_user_they_3fdaab79: "Ви впевнені, що хочете відключити цього користувача? Вони не зможуть брати участь у процесі в той час, коли неактивні."
   are_you_sure_you_want_to_delete_these_count_items_148e98ba: 
     few: "Ви впевнені, що хочете видалити %{count} елементи?"
@@ -2475,6 +2482,11 @@ uk:
       other: "%{count} студентів"
   assignment_path_selected_e80191d1: "Шлях завдання обрано"
   assignment_preview_3833e819: "%{assignment} перегляду"
+  assignment_quiz_type: 
+    quiz_type_options: 
+      graded_quiz: "Контрольну роботу оцінено"
+      graded_survey: "Огляд оцінено"
+      ungraded_survey: "Неоцінене Опитування"
   assignment_selection_6bff05c4: "Вибір завдання"
   assignment_title_82b4422e: "Назва завдання:"
   assignment_title_8a707dd2: "назва завдання"
@@ -3537,6 +3549,8 @@ uk:
     edit_appt_calendar_event: 
       description: "Опис:"
     edit_assignment: 
+      ? " group"
+      : "Група:"
       calendar: "Календар:"
       due: "Очікується:"
       group: "Група:"
@@ -3623,10 +3637,14 @@ uk:
       unregistered_users: "Користувачі, які ще не зареєстровані"
     messages_sent: "Повідомлень надіслано"
     name_is_required: "Ім'я обов'язкове!"
+    next: Наступний
+    next_month: "Наступний місяць"
     no_dates_error: "Ви повинні вказати хоча б одну дату та час"
     no_groups: "Групи не знайдені"
     no_users: "Користувачі не знайдені"
     open_appointment_on_this_day: "На цей день призначена відкрита зустріч"
+    previous: Попередній
+    previous_month: "Попередній місяць"
     prompts: 
       delete_assignment: "Ви впевнені, що хочете видалити це завдання?"
       delete_override: "Ви впевнені, що хочете видалити це перевизначене завдання?"
@@ -3647,6 +3665,7 @@ uk:
       delete_link: "Видалити часовий діапазон"
       end_time_label: "Час завершення"
       start_time_label: "Час початку"
+    title_is_required: "Заголовок обов'язковий!"
     titles: 
       edit_appointment_group: "Змінити призначення групи"
       edit_event: "Редагувати подію"
@@ -4402,6 +4421,7 @@ uk:
     errors: 
       cannot_shift_and_remove: "не вдалося вказати shift_dates і remove_dates одночасно"
       import_error: "Помилка імпорту:"
+    file_copy_error: "НЕ вдалося скопіювати файл \"%{name}\""
     missing_content_links_message: "Не вдалося розпізнати наступні посилання:"
     missing_content_links_title: "Відсутні посилання знайдено в імпортованому вмісті"
     unexpected_error: "Сталася неочікувана помилка, зверніться до служби підтримки."
@@ -5503,12 +5523,14 @@ uk:
   course_sis_7ae8f649: "sis курса"
   course_sis_df8b379: "Sis курсу"
   course_sis_id_bbed1a60: "ідентифікатор sis курса "
+  course_sis_id_c026d0f3: "SIS ID курсу"
   course_sis_id_cd834b3c: "SIS ID курсу:"
   course_sis_id_sis_id_or_canvas_id_4d323f5c: "SIS ID курсу (SIS_ID:####) або Canvas ID: (###)"
   course_starts_at_3a01f9da: "Курс починається в "
   course_statistics: 
     unknown: невідомо
   course_storage_391e1bd: "Сховище курсу"
+  course_summary_99c39cea: "Резюме курсу"
   course_syllabus_5de1b0af: "Програма курсу"
   course_users: 
     greater_than_three: "Будь ласка. введіть пошукові терміни з трьома і більше символами"
@@ -5818,6 +5840,7 @@ uk:
         feature_options: "Варіанти функції"
         grade_syncing: "Синхронізація оцінок"
         navigation: Навігація
+        quiz_settings: "Налаштування контрольної роботи"
         sections: Розділи
         tools: Застосунки
       titles: 
@@ -6329,6 +6352,9 @@ uk:
   day_9d999bec: День
   day_s_7cc1231f: "День (дні)"
   days_late_a3a721b0: "Днів пізніше"
+  de_cross_list_this_section_6f7b5984: "De-Cross-List цього розділу"
+  de_cross_list_this_section_774a827c: "De-Cross-List цього розділу"
+  de_cross_listing_section_c2ee371: "De-Cross-Listing розділу"
   deactivate_this_key_3e79a2b5: "Деактивувати цей ключ"
   deactivate_user_86c09036: "Деактивувати користувача"
   debugging_f98fcd74: Відлагодження
@@ -7178,6 +7204,7 @@ uk:
     roles: 
       designer: Конструктор
       designer_with_indefinite_article: Конструктор
+      instructors: Інструктори
       observer: Спостерігач
       observer_with_indefinite_article: Спостерігач
       student: Студент
@@ -7599,6 +7626,7 @@ uk:
   excused_5877183c: Виправдано!
   excused_cf8792eb: Виправдано
   exit_d0c7b013: Вихід
+  expand_2f2fadbd: Розгонути
   expand_all_bb64d2ea: "Розгорнути все"
   expand_collapse_title_outcome_group_student_meets__46ffef48: "Розгорнути/згорнути %{title} Результат Групи, студент відповідає майстерності %{mastery_count} з результатами %{count}"
   expand_global_navigation_2c28d5d4: "Розгорнути глобальну навігацію"
@@ -7782,6 +7810,7 @@ uk:
         folder_locked: "Тека \"%{folder},\" що містить цей файл, заблокована."
     no_preview: 
       file_previews: 
+        download: Завантажити
         download_file: "Завантажити *назва файлу*"
         no_preview_available: "Попередній перегляд  для цього файлу недоступний."
   file_s_will_be_included_on_all_pages_in_the_canvas_80569935: "Файл(и) буде долучено до всіх сторінок у настільному застосунку Canvas."
@@ -9228,6 +9257,7 @@ uk:
   j_5226008a: j
   japan_81_d1832e9d: "Японія (+81)"
   javascript_file_fc27c32b: "Файл JavaScript "
+  job_handler_9d3d1007: "Обробник завдань"
   jobs: 
     columns: 
       attempt: спроба
@@ -11995,6 +12025,7 @@ uk:
   no_active_user_with_that_id_was_found_b8fb5e14: "Жодного активного користувача з цим ідентифікатором не знайдено."
   no_assignment_name_adbb215b: "Відсутня назва завдання"
   no_assignment_selected_65d9e422: "Не вибрано завдання"
+  no_assignments_found_2097cfc1: "Завдань не знайдено"
   no_assignments_with_that_name_found_1d7be1: "Не знайдено завдань з такою назвою"
   no_associated_terms_13bacefc: "Відсутні пов'язані терміни"
   no_attributes_locked_611c5cc: "немає заблокованих атрибутів"
@@ -12733,6 +12764,8 @@ uk:
   page_name_21defa75: "Назва сторінки"
   page_name_is_required_d8c2736e: "Назва сторінки обов'язкова"
   page_not_found_2b0d05f5: "Сторінку не знайдено"
+  page_title: 
+    edit_ai_experience: "Редагувати %{title}"
   page_title_106304bb: "Заголовок сторінки"
   page_title_d1a22bbf: "Заголовок сторінки"
   page_views: 
@@ -15303,6 +15336,7 @@ uk:
   remove_email_address_b1820820: "Видалити адресу електронної пошти"
   remove_empty_attachment_b2aea632: "видалити порожнє вкладення"
   remove_f47dc62a: Видалити
+  remove_filename_1b74ef2a: "Видалити %{fileName}"
   remove_filename_87f3781e: "видалити %{filename}"
   remove_filter_68de01d4: "Видалити фільтр"
   remove_from_course_6fb47aee: "Видалити з курсу"
@@ -15314,6 +15348,7 @@ uk:
   remove_name_as_an_admin_c296cf49: "Прибрати %{name}з ролі адміністратора"
   remove_name_as_leader_3e03780a: "Видалити %{name} як лідера"
   remove_name_from_group_487cce74: "Видалити %{name} з групи"
+  remove_never_drop_rule_b9d08c64: "Видалити правило Ніколи не знищувати"
   remove_recipient_name_a6b83cef: "Видалити одержувача %{name}"
   remove_row_c198da5a: "Видалити рядок"
   remove_student_from_recipients_4b206e35: "Видалити %{student} зі списку отримувачів"
@@ -15321,6 +15356,7 @@ uk:
   remove_these_dates_48453a81: "Видалити ці дати"
   remove_this_item_from_the_module_4b2ceab7: "Видалити цей елемент з модуля"
   remove_this_rubric_from_my_list_c7d80704: "Видалити цю категорію з мого списку"
+  remove_unsaved_never_drop_rule_bde18827: "Видалити незбережене правило Ніколи не знищувати"
   removed_course_association_course_a233342c: "Видалено зв'язок з курсом %{course}"
   removed_user_as_group_leader_bb69330f: "Прибрано %{user}з ролі лідера групи"
   rename_45608f54: Перейменувати
@@ -15406,6 +15442,7 @@ uk:
   review_now_318a6a3e: "Переглянути зараз"
   reviewer_b993ce28: Рецензент
   reviewers_successfully_added_bd4b629a: "Рецензенти успішно додані"
+  revision_history_abfd1cfd: "Історія редакцій"
   rich_content_editor_2708ef21: "Покращений редактор контенту"
   rich_content_editor_sidebar_enhancements_8bd945d3: "Покращення бічній панелі редактора Rich Content"
   right_sidebar_logo_5483dc0a: "Логотип правої бічної панелі"
@@ -15513,6 +15550,8 @@ uk:
   role_successfully_updated_4317e6a4: "Роль успішно оновлена"
   roles: 
     based_on_type: "На основі %{base_type}"
+    designer: Конструктор
+    designers: Дизайнери
     edit_role: 
       role_name_label: "Ім'я ролі"
     new_role: 
@@ -15521,6 +15560,8 @@ uk:
       role_type: "Базовий тип:"
       save: Зберегти
       saving: Збереження...
+    observer: Спостерігач
+    observers: Спостерігачі
     permission_button: 
       rolebutton: 
         disable: Відключити
@@ -15537,6 +15578,12 @@ uk:
       account_roles: "Ролі облікового запису"
       course_roles: "Ролі курсу"
       page_header_title: "Права облікового запису"
+    student: Студент
+    students: Студенти
+    ta: TA
+    tas: TA
+    teacher: Викладач
+    teachers: Викладачі
   rootFoldersFinder: 
     course_files: "Файли курсу"
     group_files: "Файли групи"
@@ -15857,6 +15904,7 @@ uk:
   section_specific_discussions_are_disabled_9e3fd431: "Обговорення для конкретних розділів відключено"
   section_specific_topics_must_have_sections_11868960: "Теми конкретних розділів повинні мати розділи"
   section_starts_at_65eaed1: "Розділ починається в"
+  section_successfully_de_cross_listed_df3b64e: "Розділ успішно de-cross-listed!"
   sections: 
     section_created: "Розділ успішно створено!"
     section_creation_failed: "Створення розділу не вдалося"
@@ -15921,6 +15969,7 @@ uk:
         current_enrollments: "Поточні реєстрації"
         decrosslist_section: "De-Cross-List цього розділу"
   sections_94731e51: Розділи
+  sections_are_an_additional_way_to_organize_users_t_57551e0: "Секції є додатковим способом організації користувачів. Це може дозволити вам навчити кілька класів з того ж курсу, так що ви можете мати вміст курсу в одному місці. Нижче ви можете перемістити користувача в інший розділ, або додати / видалити розділ контингенту слухачів. Користувачі повинні мати принаймні один розділ в будь-який час."
   see_rubric_results_62a6447d: "Побачити результати рубрики"
   see_scoring_details_f7fd1f3b: "Побачити деталі оцінки"
   see_some_lti_tools_that_work_great_with_canvas_16ef75a0: "*Деякі інструменти LTI *, які чудово працюють з Canvas."
@@ -15982,6 +16031,7 @@ uk:
   select_one_of_the_options_c8b0c6e4: "Виберіть один із варіантів:"
   select_prerequisite_module_57894963: "Виберіть необхідний модуль"
   select_prerequite_module_e9042bb0: "Виберіть необхідний модуль"
+  select_profile_picture_172176b6: "Виберіть фото профілю"
   select_question_bank_508e5c08: "Вибрати банк запитань"
   select_specific_content_5382e7ea: "Виберіть конкретний вміст"
   select_student_name_caaff244: "Вибрати студента %{name}"
@@ -16716,6 +16766,7 @@ uk:
   show_course_sections_for_course_name_5f715702: "Показати розділи для курсу %{name}"
   show_courses_from_8a087f63: "Показати курси з"
   show_courses_navigation_menu_7ad1a8d4: "Показувати меню навігації курсів"
+  show_d6f24222: показати
   show_deleted_replies_a2e0a36f: "Показати видалені відповіді"
   show_exceptions_270ea1c5: "Показати винятки"
   show_groups_navigation_menu_1521d38d: "Показувати меню навігації груп"
@@ -18986,6 +19037,8 @@ uk:
         anyone: Будь-хто
         only_teachers: "Тільки викладачі"
         teachers_and_students: "Викладачі та студенти"
+      create_page_title: "Нова сторінка"
+      edit_page_title: "Редагувати %{title}"
       editing_roles: 
         anyone: Будь-хто
         only_members: "Тільки учасники"

@@ -16,36 +16,52 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useContext, useState} from 'react'
+import React, {useContext, useMemo, useState} from 'react'
 import {TranslationControls} from '../../components/TranslationControls/TranslationControls'
 import {View} from '@instructure/ui-view'
 import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
 import {Button, IconButton} from '@instructure/ui-buttons'
-import {SurveyLinkBox} from '@canvas/discussions/react/components/SurveyLinkBox/SurveyLinkBox'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import {IconRefreshLine, IconEndLine, IconAiLine, IconAiSolid} from '@instructure/ui-icons'
+import {IconRefreshLine, IconEndLine, IconAiSolid} from '@instructure/ui-icons'
 import {DiscussionManagerUtilityContext} from '../../utils/constants'
 import {TranslationTriggerModal} from '../../components/TranslationTriggerModal/TranslationTriggerModal'
+import {useTranslationStore} from '../../hooks/useTranslationStore'
+import {useTranslation} from '../../hooks/useTranslation'
+import {useObserverContext} from '../../utils/ObserverContext'
 
 export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
   const I18n = useI18nScope('discussions_posts')
   const [isModalOpen, setModalOpen] = useState(false)
-  const [selectedLanguage, setSelectedLanguage] = useState()
   const [isLanguageNotSelectedError, setIsLanguageNotSelectedError] = useState(false)
   const [isLanguageAlreadyActiveError, setIsLanguageAlreadyActiveError] = useState(false)
 
+  const activeLanguage = useTranslationStore(state => state.activeLanguage)
+  const setActiveLangauge = useTranslationStore(state => state.setActiveLanguage)
+  const setTranslateAll = useTranslationStore(state => state.setTranslateAll)
+  const isTranslateAll = useTranslationStore(state => state.translateAll)
+  const clearTranslateAll = useTranslationStore(state => state.clearTranslateAll)
+  const entries = useTranslationStore(state => state.entries)
+
   const translationControlsRef = React.createRef()
-  const {
-    translateTargetLanguage,
-    setTranslateTargetLanguage,
-    setShowTranslationControl,
-    entryTranslatingSet,
-  } = useContext(DiscussionManagerUtilityContext)
+  const {setTranslateTargetLanguage, setShowTranslationControl, clearQueue} = useContext(
+    DiscussionManagerUtilityContext,
+  )
+  const {startObserving, stopObserving} = useObserverContext()
+
+  const isLoading = useMemo(() => {
+    return Object.values(entries).some(entry => entry.loading)
+  }, [entries])
+
+  const {preferredLanguage, savePreferredLanguage} = useTranslation()
+
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    preferredLanguage || activeLanguage || '',
+  )
 
   const closeTranslationModule = () => {
-    if (translateTargetLanguage) {
+    if (isTranslateAll) {
       setModalOpen(true)
     } else {
       setShowTranslationControl(false)
@@ -58,12 +74,23 @@ export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
   }
 
   const closeModalAndRemoveTranslations = () => {
+    // Clear translateAll FIRST to prevent any new jobs from being enqueued
+    clearTranslateAll(false)
+    setActiveLangauge(null)
+    // Then stop observing and clear queue
+    stopObserving()
+    clearQueue()
     setModalOpen(false)
     setShowTranslationControl(false)
-    setTranslateTargetLanguage(null)
   }
 
   const resetTranslationsModule = () => {
+    // Clear translateAll FIRST to prevent any new jobs from being enqueued
+    clearTranslateAll(false)
+    setActiveLangauge(null)
+    // Then stop observing and clear queue
+    stopObserving()
+    clearQueue()
     translationControlsRef.current?.reset()
     setTranslateTargetLanguage(null)
     setIsLanguageNotSelectedError(false)
@@ -76,12 +103,20 @@ export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
       return
     }
 
-    if (selectedLanguage === translateTargetLanguage) {
+    if (isTranslateAll && selectedLanguage === activeLanguage) {
       setIsLanguageAlreadyActiveError(true)
       return
     }
 
-    setTranslateTargetLanguage(selectedLanguage)
+    if (preferredLanguage && preferredLanguage !== selectedLanguage) {
+      savePreferredLanguage(selectedLanguage, ENV?.discussion_topic_id)
+    }
+
+    clearQueue()
+    clearTranslateAll(true)
+    setActiveLangauge(selectedLanguage)
+    setTranslateAll(true)
+    startObserving(selectedLanguage)
   }
 
   const title = isAnnouncement ? I18n.t('Translate Announcement') : I18n.t('Translate Discussion')
@@ -141,15 +176,14 @@ export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
             onSetIsLanguageNotSelectedError={setIsLanguageNotSelectedError}
             isLanguageAlreadyActiveError={isLanguageAlreadyActiveError}
             onSetIsLanguageAlreadyActiveError={setIsLanguageAlreadyActiveError}
-            onSetSelectedLanguage={languageId => {
-              setSelectedLanguage(languageId)
-            }}
+            onSetSelectedLanguage={setSelectedLanguage}
+            selectedLanguage={selectedLanguage}
           />
         </Flex.Item>
         <Flex.Item>
           <Button
             onClick={translateDiscussion}
-            disabled={entryTranslatingSet.size > 0}
+            disabled={isLoading}
             margin="0 small 0 0"
             color="ai-primary"
             aria-label={I18n.t('Ignite AI Translate')}
@@ -161,7 +195,7 @@ export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
           <Button
             onClick={resetTranslationsModule}
             renderIcon={<IconRefreshLine />}
-            disabled={entryTranslatingSet.size > 0}
+            disabled={isLoading}
             data-testid="reset-translation-button"
           >
             {I18n.t('Reset')}

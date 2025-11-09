@@ -51,7 +51,7 @@ RSpec.describe PeerReview::PeerReviewCreatorService do
   end
 
   before do
-    course.enable_feature!(:peer_review_allocation_and_grading)
+    course.enable_feature!(:peer_review_grading)
   end
 
   describe "#initialize" do
@@ -120,6 +120,14 @@ RSpec.describe PeerReview::PeerReviewCreatorService do
         expect(result.anonymous_peer_reviews).to eq(parent_assignment.anonymous_peer_reviews)
         expect(result.automatic_peer_reviews).to eq(parent_assignment.automatic_peer_reviews)
         expect(result.intra_group_peer_reviews).to eq(parent_assignment.intra_group_peer_reviews)
+      end
+
+      it "inherits group_category_id from parent" do
+        group_category = course.group_categories.create!(name: "Test Group Category")
+        parent_assignment.update!(group_category_id: group_category.id)
+
+        result = service.call
+        expect(result.group_category_id).to eq(parent_assignment.group_category_id)
       end
 
       it "recomputes due dates after creating the sub assignment" do
@@ -215,7 +223,7 @@ RSpec.describe PeerReview::PeerReviewCreatorService do
       it "raises error for nil parent assignment" do
         invalid_service = described_class.new(parent_assignment: nil)
         expect { invalid_service.call }.to raise_error(
-          PeerReview::PeerReviewInvalidParentAssignmentError,
+          PeerReview::InvalidParentAssignmentError,
           "Invalid parent assignment"
         )
       end
@@ -229,29 +237,43 @@ RSpec.describe PeerReview::PeerReviewCreatorService do
         invalid_service = described_class.new(parent_assignment: external_tool_assignment)
 
         expect { invalid_service.call }.to raise_error(
-          PeerReview::PeerReviewInvalidAssignmentSubmissionTypesError,
+          PeerReview::InvalidAssignmentSubmissionTypesError,
           "Peer reviews cannot be used with External Tool assignments"
         )
       end
 
+      it "raises error for discussion topic assignment" do
+        discussion_topic_assignment = assignment_model(
+          course:,
+          title: "Discussion Topic Assignment",
+          submission_types: "discussion_topic"
+        )
+        invalid_service = described_class.new(parent_assignment: discussion_topic_assignment)
+
+        expect { invalid_service.call }.to raise_error(
+          PeerReview::InvalidAssignmentSubmissionTypesError,
+          "Peer reviews cannot be used with Discussion Topic assignments"
+        )
+      end
+
       it "raises error when feature is disabled" do
-        course.disable_feature!(:peer_review_allocation_and_grading)
+        course.disable_feature!(:peer_review_grading)
         expect { service.call }.to raise_error(
-          PeerReview::PeerReviewFeatureDisabledError,
-          "Peer Review Allocation and Grading feature flag is disabled"
+          PeerReview::FeatureDisabledError,
+          "Peer Review Grading feature flag is disabled"
         )
       end
 
       it "raises error when peer review sub assignment already exists" do
         PeerReviewSubAssignment.create!(parent_assignment:)
         expect { service.call }.to raise_error(
-          PeerReview::PeerReviewSubAssignmentExistsError,
+          PeerReview::SubAssignmentExistsError,
           "Peer review sub assignment exists"
         )
       end
 
       it "does not create PeerReviewSubAssignment" do
-        course.disable_feature!(:peer_review_allocation_and_grading)
+        course.disable_feature!(:peer_review_grading)
         expect do
           service.call
         rescue
@@ -279,7 +301,7 @@ RSpec.describe PeerReview::PeerReviewCreatorService do
       expect(service).not_to receive(:validate_feature_enabled)
       expect(service).not_to receive(:validate_peer_review_sub_assignment_not_exist)
 
-      expect { service.send(:run_validations) }.to raise_error(PeerReview::PeerReviewInvalidParentAssignmentError)
+      expect { service.send(:run_validations) }.to raise_error(PeerReview::InvalidParentAssignmentError)
     end
   end
 

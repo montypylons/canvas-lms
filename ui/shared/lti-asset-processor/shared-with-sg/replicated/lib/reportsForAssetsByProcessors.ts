@@ -20,7 +20,13 @@ import _ from 'lodash'
 import {useScope as createI18nScope} from '@canvas/i18n'
 
 import type {LtiAssetProcessor} from '../types/LtiAssetProcessors'
-import type {AssetReportCompatibleSubmissionType, LtiAssetReport} from '../types/LtiAssetReports'
+import type {
+  AssetReportCompatibleSubmissionType,
+  LtiAssetReport,
+  LtiDiscussionAssetReport,
+} from '../types/LtiAssetReports'
+
+type DateTimeFormatter = (date: Date) => string
 
 const I18n = createI18nScope('lti_asset_processor')
 
@@ -51,17 +57,34 @@ export function reportsForAssetsByProcessors(
   reports: LtiAssetReport[],
   processors: LtiAssetProcessor[],
   reportsAssetSelector: ReportsAssetSelector,
+  formatDateTime: DateTimeFormatter,
 ): GroupedLtiAssetReports {
   const reportsByProc: Record<string, LtiAssetReport[]> = _.groupBy(reports, r => r.processorId)
   return processors.map(p => ({
     processor: p,
-    reportGroups: reportsForAssets(reportsByProc[p._id] || [], reportsAssetSelector),
+    reportGroups: reportsForAssets(
+      reportsByProc[p._id] || [],
+      reportsAssetSelector,
+      formatDateTime,
+    ),
+  }))
+}
+
+function reportsForAttachmentAssets(
+  reportsForProc: LtiAssetReport[],
+  attachments: {_id: string; displayName: string}[],
+): LtiAssetReportGroup[] {
+  return attachments.map(a => ({
+    key: a._id,
+    displayName: a.displayName,
+    reports: reportsForProc.filter(r => r.asset.attachmentId === a._id),
   }))
 }
 
 function reportsForAssets(
   reportsForProc: LtiAssetReport[],
   reportsAssetSelector: ReportsAssetSelector,
+  formatDateTime: DateTimeFormatter,
 ): LtiAssetReportGroup[] {
   const {submissionType, attachments, attempt} = reportsAssetSelector
   switch (submissionType) {
@@ -74,12 +97,52 @@ function reportsForAssets(
         },
       ]
     case 'online_upload':
-      return attachments.map(a => ({
-        key: a._id,
-        displayName: a.displayName,
-        reports: reportsForProc.filter(r => r.asset.attachmentId === a._id),
-      }))
+      return reportsForAttachmentAssets(reportsForProc, attachments)
+    case 'discussion_topic':
+      return [
+        ...reportsForAttachmentAssets(reportsForProc, attachments),
+        ...discussionReports(reportsForProc, formatDateTime),
+      ]
     default:
       return submissionType satisfies never
   }
+}
+
+function discussionReports(
+  reportsForProc: LtiAssetReport[],
+  formatDateTime: DateTimeFormatter,
+): LtiAssetReportGroup[] {
+  const discReports = reportsForProc.filter(isDiscussionReport)
+  const grouped = _.groupBy(discReports, r => r.asset.discussionEntryVersion._id)
+
+  const result = []
+  for (const [entryId, reports] of Object.entries(grouped)) {
+    const version = reports[0]?.asset.discussionEntryVersion
+    const displayName = version && discussionEntryVersionDisplayName(version, formatDateTime)
+    if (displayName) {
+      result.push({key: entryId, displayName, reports})
+    }
+  }
+  return result
+}
+
+function discussionEntryVersionDisplayName(
+  version: LtiDiscussionAssetReport['asset']['discussionEntryVersion'],
+  formatDateTime: DateTimeFormatter,
+): string | undefined {
+  // createdAt shouldn't actually be undefined, but type is nullable in graphql:
+  if (!version.createdAt) return undefined
+
+  const formattedDate = formatDateTime(new Date(version.createdAt))
+  return I18n.t('{{date}}: "{{messageIntro}}"', {
+    date: formattedDate,
+    messageIntro: version.messageIntro,
+  })
+}
+
+function isDiscussionReport(report: LtiAssetReport): report is LtiDiscussionAssetReport {
+  return (
+    report.asset.discussionEntryVersion !== null &&
+    report.asset.discussionEntryVersion !== undefined
+  )
 }

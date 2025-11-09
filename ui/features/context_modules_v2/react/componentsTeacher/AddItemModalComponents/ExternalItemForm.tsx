@@ -25,6 +25,7 @@ import ExternalToolSelector from './ExternalToolSelector'
 import {ContentItem, ModuleItemContentType} from '../../hooks/queries/useModuleItemContent'
 import {ExternalToolModalItem} from '../../utils/types'
 import {ITEM_TYPE} from '../../utils/constants'
+import AddItemFormFieldGroup, {AddItemFormFieldGroupData} from './AddItemFormFieldGroup'
 
 const I18n = createI18nScope('context_modules_v2')
 
@@ -40,7 +41,7 @@ const validateUrl = (url: string, shouldValidateEmpty: boolean = false): string 
   return ''
 }
 
-interface ExternalItemFormProps {
+interface ExternalItemFormProps extends AddItemFormFieldGroupData {
   onChange: (field: string, value: any) => void
   externalUrlValue?: string
   externalUrlName?: string
@@ -58,7 +59,10 @@ export const ExternalItemForm: React.FC<ExternalItemFormProps> = ({
   itemType = 'external_url',
   contentItems = [],
   formErrors = {},
-}) => {
+  indentValue,
+  onIndentChange,
+  moduleName,
+}: ExternalItemFormProps) => {
   const [url, setUrl] = useState(externalUrlValue)
   const [pageName, setPageName] = useState(externalUrlName)
   const [loadInNewTab, setLoadInNewTab] = useState(newTab)
@@ -66,19 +70,25 @@ export const ExternalItemForm: React.FC<ExternalItemFormProps> = ({
   const [localUrlError, setLocalUrlError] = useState(formErrors.url || '')
   const [hasUserInteracted, setHasUserInteracted] = useState(false)
 
-  const externalToolItems = useMemo(
-    () =>
-      contentItems.map((item: ContentItem) => ({
-        definition_id: item.id,
-        definition_type: ITEM_TYPE.EXTERNAL_TOOL,
-        name: item.name,
-        url: item.url,
-        domain: item.domain,
-        description: item.description,
-        placements: item.placements,
-      })) as ExternalToolModalItem[],
-    [contentItems],
-  )
+  const externalToolItems = useMemo(() => {
+    const mappedItems = contentItems.map((item: ContentItem) => ({
+      definition_id: item.id,
+      definition_type: ITEM_TYPE.EXTERNAL_TOOL,
+      name: item.name,
+      url: item.url,
+      domain: item.domain,
+      description: item.description,
+      placements: item.placements,
+    })) as ExternalToolModalItem[]
+
+    if (itemType === ITEM_TYPE.EXTERNAL_TOOL) {
+      return mappedItems.filter(
+        ({placements}) => placements?.linkSelection || placements?.resourceSelection,
+      )
+    } else {
+      return mappedItems
+    }
+  }, [contentItems, itemType])
 
   // Handle tool selection and auto-populate URL/name
   const handleToolSelect = (tool: ExternalToolModalItem | null) => {
@@ -124,7 +134,11 @@ export const ExternalItemForm: React.FC<ExternalItemFormProps> = ({
   const isExternalTool = itemType === 'external_tool'
 
   return (
-    <View as="form" padding="small" display="block">
+    <AddItemFormFieldGroup
+      indentValue={indentValue}
+      onIndentChange={onIndentChange}
+      moduleName={moduleName}
+    >
       {isExternalTool && (
         <View margin="0 0 medium 0">
           <ExternalToolSelector
@@ -189,7 +203,7 @@ export const ExternalItemForm: React.FC<ExternalItemFormProps> = ({
           }
         }}
       />
-    </View>
+    </AddItemFormFieldGroup>
   )
 }
 

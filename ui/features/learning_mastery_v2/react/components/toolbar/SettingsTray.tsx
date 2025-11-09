@@ -16,15 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
+import React, {useCallback, useState} from 'react'
 import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {Text} from '@instructure/ui-text'
 import {Tray} from '@instructure/ui-tray'
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {GradebookSettings} from '../../utils/constants'
 import {SecondaryInfoSelector} from './SecondaryInfoSelector'
 import {DisplayFilterSelector} from './DisplayFilterSelector'
+import {ScoreDisplayFormatSelector} from './ScoreDisplayFormatSelector'
 
 const I18n = createI18nScope('LearningMasteryGradebook')
 
@@ -32,7 +34,8 @@ export interface SettingsTrayProps {
   open: boolean
   onDismiss: () => void
   gradebookSettings: GradebookSettings
-  setGradebookSettings: (settings: GradebookSettings) => void
+  setGradebookSettings: (settings: GradebookSettings) => Promise<{success: boolean}>
+  isSavingSettings?: boolean
 }
 
 export const SettingsTray: React.FC<SettingsTrayProps> = ({
@@ -40,23 +43,44 @@ export const SettingsTray: React.FC<SettingsTrayProps> = ({
   onDismiss,
   gradebookSettings,
   setGradebookSettings,
+  isSavingSettings = false,
 }) => {
   const [secondaryInfoDisplay, setSecondaryInfoDisplay] = useState(
     gradebookSettings.secondaryInfoDisplay,
   )
   const [displayFilters, setDisplayFilters] = useState(gradebookSettings.displayFilters)
+  const [scoreDisplayFormat, setScoreDisplayFormat] = useState(gradebookSettings.scoreDisplayFormat)
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setSecondaryInfoDisplay(gradebookSettings.secondaryInfoDisplay)
     setDisplayFilters(gradebookSettings.displayFilters)
-  }
+    setScoreDisplayFormat(gradebookSettings.scoreDisplayFormat)
+  }, [
+    gradebookSettings.secondaryInfoDisplay,
+    gradebookSettings.displayFilters,
+    gradebookSettings.scoreDisplayFormat,
+  ])
 
-  const saveSettings = () => {
-    setGradebookSettings({
+  const saveSettings = async () => {
+    const newSettings = {
       ...gradebookSettings,
       secondaryInfoDisplay,
       displayFilters,
-    })
+      scoreDisplayFormat,
+    }
+
+    const result = await setGradebookSettings(newSettings)
+
+    if (result?.success) {
+      onDismiss()
+      showFlashAlert({type: 'success', message: I18n.t('Your settings have been saved.')})
+    } else {
+      resetForm()
+      showFlashAlert({
+        type: 'error',
+        message: I18n.t('There was an error saving your settings. Please try again.'),
+      })
+    }
   }
 
   return (
@@ -91,14 +115,12 @@ export const SettingsTray: React.FC<SettingsTrayProps> = ({
           values={displayFilters}
           onChange={filters => setDisplayFilters(filters)}
         />
+        <ScoreDisplayFormatSelector
+          value={scoreDisplayFormat}
+          onChange={format => setScoreDisplayFormat(format)}
+        />
         <Flex gap="small" alignItems="stretch" direction="column">
-          <Button
-            color="primary"
-            onClick={() => {
-              saveSettings()
-              onDismiss()
-            }}
-          >
+          <Button color="primary" onClick={saveSettings} disabled={isSavingSettings}>
             {I18n.t('Apply')}
           </Button>
           <Button

@@ -44,7 +44,7 @@ class ObserverAlert < ActiveRecord::Base
     %w[DiscussionTopic Assignment Submission Course].each do |context_type|
       # get distinct context ids
       alert_context_ids = where(context_type:).distinct.reorder(nil).pluck(:context_id)
-      context_class = context_type.classify.constantize
+      context_class = (context_type == "Assignment") ? AbstractAssignment : context_type.classify.constantize
 
       # group context ids by course ids so we don't instantiate the same enrollment multiple times
       alert_context_ids.each do |context_id|
@@ -83,7 +83,7 @@ class ObserverAlert < ActiveRecord::Base
 
   def self.create_assignment_missing_alerts
     alerts = []
-    GuardRail.activate(:secondary) do
+    GuardRail.activate(:report) do
       last_user_id = nil
       now = Time.now.utc
       loop do

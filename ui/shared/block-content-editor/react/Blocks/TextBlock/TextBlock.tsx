@@ -20,7 +20,7 @@ import {useState} from 'react'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {TextBlockSettings} from './TextBlockSettings'
 import {BaseBlock} from '../BaseBlock'
-import {useSave} from '../BaseBlock/useSave'
+import {useSave} from '../../hooks/useSave'
 import {TextBlockProps} from './types'
 import {TextEditPreview} from '../BlockItems/Text/TextEditPreview'
 import {TitleEdit} from '../BlockItems/Title/TitleEdit'
@@ -31,6 +31,7 @@ import {TitleView} from '../BlockItems/Title/TitleView'
 import {TitleEditPreview} from '../BlockItems/Title/TitleEditPreview'
 import {TextView} from '../BlockItems/Text/TextView'
 import {defaultProps} from './defaultProps'
+import {getContrastingTextColorCached} from '../../utilities/getContrastingTextColor'
 
 const I18n = createI18nScope('block_content_editor')
 
@@ -63,6 +64,7 @@ const TextBlockEdit = (props: TextBlockProps) => {
   const {focusHandler} = useFocusElement()
   const [title, setTitle] = useState(props.title)
   const [content, setContent] = useState(props.content)
+  const labelColor = getContrastingTextColorCached(props.backgroundColor)
 
   useSave<typeof TextBlock>(() => ({
     title,
@@ -73,7 +75,12 @@ const TextBlockEdit = (props: TextBlockProps) => {
     <TextBlockLayout
       title={
         props.includeBlockTitle && (
-          <TitleEdit title={title} onTitleChange={setTitle} focusHandler={focusHandler} />
+          <TitleEdit
+            title={title}
+            onTitleChange={setTitle}
+            focusHandler={focusHandler}
+            labelColor={labelColor}
+          />
         )
       }
       text={

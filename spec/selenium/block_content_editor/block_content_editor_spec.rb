@@ -19,6 +19,9 @@
 require_relative "../common"
 require_relative "../helpers/wiki_and_tiny_common"
 require_relative "pages/block_content_editor_page"
+require_relative "components/blocks/block_title_component"
+require_relative "components/settings_tray/block_settings/shared/block_title_toggle"
+require_relative "components/settings_tray/block_settings/shared/color_settings"
 
 describe "Block Content Editor", :ignore_js_errors do
   include_context "in-process server selenium tests"
@@ -28,6 +31,7 @@ describe "Block Content Editor", :ignore_js_errors do
   before do
     course_with_teacher_logged_in
     @course.account.enable_feature!(:block_content_editor)
+    @course.enable_feature!(:block_content_editor_eap)
     @context = @course
     create_wiki_page_with_block_content_editor(@course)
   end
@@ -75,24 +79,24 @@ describe "Block Content Editor", :ignore_js_errors do
     end
 
     it "duplicates a block" do
-      first_block.duplicate_button.click
+      blocks.first.duplicate_button.click
       wait_for_ajaximations
 
       expect(blocks.size).to eq(2)
     end
 
     it "removes a block" do
-      first_block.remove_button.click
+      blocks.first.remove_button.click
       wait_for_ajaximations
 
       expect(blocks.size).to eq(0)
     end
 
     it "opens settings tray" do
-      first_block.settings_button.click
+      blocks.first.settings_button.click
       wait_for_ajaximations
 
-      expect(settings_tray).to be_displayed
+      expect(blocks.first.settings_tray).to be_displayed
     end
   end
 
@@ -103,6 +107,9 @@ describe "Block Content Editor", :ignore_js_errors do
     end
 
     shared_examples "block movement" do |block_selector, move_direction, expected_order|
+      let(:first_block) { blocks.first }
+      let(:last_block) { blocks.last }
+
       it "moves a block #{move_direction}" do
         expected_labels = expected_order.map { |block_name| send(block_name).block_type_label.text }
         target_block = send(block_selector)
@@ -172,13 +179,13 @@ describe "Block Content Editor", :ignore_js_errors do
       add_a_block("Text", "Text column")
       add_a_block("Image", "Image + text")
       expect(blocks.size).to eq(2)
-      expect(first_block.block_type_label.text).to eq("Text column")
-      expect(last_block.block_type_label.text).to eq("Image + text")
+      expect(blocks.first.block_type_label.text).to eq("Text column")
+      expect(blocks.last.block_type_label.text).to eq("Image + text")
 
       toolbar_component.undo_button.click
       wait_for_ajaximations
       expect(blocks.size).to eq(1)
-      expect(first_block.block_type_label.text).to eq("Text column")
+      expect(blocks.first.block_type_label.text).to eq("Text column")
 
       toolbar_component.undo_button.click
       wait_for_ajaximations
@@ -188,13 +195,13 @@ describe "Block Content Editor", :ignore_js_errors do
       toolbar_component.redo_button.click
       wait_for_ajaximations
       expect(blocks.size).to eq(1)
-      expect(first_block.block_type_label.text).to eq("Text column")
+      expect(blocks.first.block_type_label.text).to eq("Text column")
 
       toolbar_component.redo_button.click
       wait_for_ajaximations
       expect(blocks.size).to eq(2)
-      expect(first_block.block_type_label.text).to eq("Text column")
-      expect(last_block.block_type_label.text).to eq("Image + text")
+      expect(blocks.first.block_type_label.text).to eq("Text column")
+      expect(blocks.last.block_type_label.text).to eq("Image + text")
       expect(toolbar_component.redo_button).to be_disabled
     end
   end
@@ -207,8 +214,7 @@ describe "Block Content Editor", :ignore_js_errors do
     end
 
     it "toggles preview mode when preview button is clicked" do
-      expect(element_exists?(block_selector)).to be false
-      expect(preview_component.preview_selector_bar).to be_displayed
+      expect(element_exists?(base_block_edit_layout_selector)).to be false
       expect(preview_component.preview_layout).to be_displayed
     end
 
@@ -273,6 +279,881 @@ describe "Block Content Editor", :ignore_js_errors do
       blocks.each do |block|
         expect(element_exists?(block.block_menu_selector)).to be false
         expect(element_exists?(block.block_type_label_selector)).to be false
+      end
+    end
+  end
+
+  shared_examples "editing background color" do
+    it "changes background color" do
+      blocks.first.settings_button.click
+      wait_for_ajaximations
+
+      color_settings = blocks.first.settings.color_settings
+      color_settings.change_background_color("ff0000")
+      wait_for_ajaximations
+      expect(blocks.first.block.css_value("background-color")).to eq("rgba(255, 0, 0, 1)")
+    end
+
+    it "preserves background color after closing settings tray" do
+      blocks.first.settings_button.click
+      wait_for_ajaximations
+
+      color_settings = blocks.first.settings.color_settings
+      color_settings.change_background_color("ff0000")
+      wait_for_ajaximations
+      expect(blocks.first.block.css_value("background-color")).to eq("rgba(255, 0, 0, 1)")
+
+      blocks.first.settings_tray_component.close_button.click
+      wait_for_ajaximations
+      expect(blocks.first.block.css_value("background-color")).to eq("rgba(255, 0, 0, 1)")
+    end
+  end
+
+  shared_examples "editing block title" do
+    it "edits block title" do
+      block_title = blocks_with_title.first.block_title.title
+      expect(block_title).to be_displayed
+      expect(block_title.text).to eq("Click to edit")
+
+      block_title.click
+      wait_for_ajaximations
+
+      block_title_input = blocks_with_title.first.block_title.title_input
+      expect(block_title_input).to be_displayed
+
+      block_title_input.send_keys("Block Title")
+      click_outside_block
+
+      block_title = blocks_with_title.first.block_title.title
+      expect(block_title.text).to eq("Block Title")
+    end
+
+    it "toggles block title" do
+      block_title = blocks.first.block_title.title
+      expect(block_title).to be_displayed
+
+      blocks_with_title.first.settings_button.click
+      wait_for_ajaximations
+
+      block_title_toggle = blocks_with_title.first.settings.block_title_toggle.toggle
+      block_title_toggle.click
+      wait_for_ajaximations
+      expect(blocks_with_title.first.block_title.is_title_present?).to be false
+
+      settings_tray_close_button = blocks_with_title.first.settings_tray_component.close_button
+      settings_tray_close_button.click
+      wait_for_ajaximations
+      expect(blocks_with_title.first.block_title.is_title_present?).to be false
+
+      blocks_with_title.first.settings_button.click
+      wait_for_ajaximations
+
+      block_title_toggle = blocks_with_title.first.settings.block_title_toggle.toggle
+      block_title_toggle.click
+      wait_for_ajaximations
+      block_title = blocks_with_title.first.block_title.title
+      expect(block_title).to be_displayed
+
+      settings_tray_close_button = blocks_with_title.first.settings_tray_component.close_button
+      settings_tray_close_button.click
+      wait_for_ajaximations
+      expect(block_title).to be_displayed
+    end
+
+    it "changes title color" do
+      blocks_with_title.first.settings_button.click
+      wait_for_ajaximations
+
+      color_settings = blocks_with_title.first.settings.color_settings
+      color_settings.change_title_color("ff0000")
+      block_title_color = blocks_with_title.first.block_title.title.css_value("color")
+      expect(block_title_color).to eq("rgba(255, 0, 0, 1)")
+    end
+
+    it "preserves title color after closing settings tray" do
+      blocks_with_title.first.settings_button.click
+      wait_for_ajaximations
+
+      color_settings = blocks_with_title.first.settings.color_settings
+      color_settings.change_title_color("ff0000")
+      block_title_color = blocks_with_title.first.block_title.title.css_value("color")
+      expect(block_title_color).to eq("rgba(255, 0, 0, 1)")
+
+      blocks_with_title.first.settings_tray_component.close_button.click
+      wait_for_ajaximations
+      block_title_color = blocks_with_title.first.block_title.title.css_value("color")
+      expect(block_title_color).to eq("rgba(255, 0, 0, 1)")
+    end
+  end
+
+  shared_examples "no block title" do
+    it "does not display block title" do
+      block_title_component = BlockTitleComponent.new(blocks.first.block)
+      expect(block_title_component.is_title_present?).to be false
+    end
+
+    it "does not have block title toggle in settings tray" do
+      blocks.first.settings_button.click
+      wait_for_ajaximations
+
+      block_title_toggle = BlockTitleToggle.new
+      expect(element_exists?(block_title_toggle.toggle_selector, true)).to be false
+    end
+
+    it "does not have title color settings in settings tray" do
+      blocks.first.settings_button.click
+      wait_for_ajaximations
+
+      color_settings = ColorSettings.new
+      expect(element_exists?(color_settings.title_color_setting_selector, true)).to be false
+    end
+  end
+
+  shared_examples "editing image" do
+    it "shows image placeholder in edit preview mode when no image is uploaded" do
+      expect(blocks.first.image_placeholder).to be_displayed
+      expect(element_exists?(blocks.first.image_selector)).to be false
+      expect(element_exists?(blocks.first.add_image_button_selector)).to be false
+    end
+
+    it "shows add image button in edit mode when no image is uploaded" do
+      blocks.first.block_title.title.click
+      wait_for_ajaximations
+
+      expect(element_exists?(blocks.first.image_placeholder_selector)).to be false
+      expect(element_exists?(blocks.first.image_selector)).to be false
+      expect(blocks.first.add_image_button).to be_displayed
+    end
+
+    it "adds an image" do
+      blocks.first.block_title.title.click
+      wait_for_ajaximations
+
+      image_path = "https://placehold.co/600x400.png"
+      blocks.first.add_external_image(image_path)
+      wait_for_ajaximations
+
+      expect(element_exists?(blocks.first.image_placeholder_selector)).to be false
+      expect(blocks.first.image).to be_displayed
+      expect(blocks.first.image.attribute("src")).to include(image_path)
+    end
+
+    it "replaces an image" do
+      blocks.first.block_title.title.click
+      wait_for_ajaximations
+
+      image_path = "https://placehold.co/600x400.png"
+      blocks.first.add_external_image(image_path)
+      wait_for_ajaximations
+
+      expect(blocks.first.image.attribute("src")).to include(image_path)
+
+      new_image_path = "https://placehold.co/800x600.png"
+      blocks.first.replace_with_external_image(new_image_path)
+      wait_for_ajaximations
+
+      expect(blocks.first.image).to be_displayed
+      expect(blocks.first.image.attribute("src")).to include(new_image_path)
+    end
+
+    describe "image caption" do
+      it "displays default image caption after adding an image" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        image_path = "https://placehold.co/600x400.png"
+        blocks.first.add_external_image(image_path)
+        wait_for_ajaximations
+
+        expect(blocks.first.image_caption).to be_displayed
+        expect(blocks.first.image_caption.text).to eq("Image caption")
+      end
+
+      it "opens settings tray when edit caption button is clicked" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        image_path = "https://placehold.co/600x400.png"
+        blocks.first.add_external_image(image_path)
+        wait_for_ajaximations
+
+        blocks.first.edit_image_caption_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.settings_tray).to be_displayed
+      end
+
+      it "updates image caption" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        image_path = "https://placehold.co/600x400.png"
+        blocks.first.add_external_image(image_path)
+        wait_for_ajaximations
+
+        blocks.first.edit_image_caption_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.image_caption_input.send_keys("A random 1024x768 image")
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image_caption.text).to eq("A random 1024x768 image")
+      end
+
+      it "shows unchecked 'use alt text as caption' checkbox by default" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        expect(settings.use_alt_text_as_caption_checkbox).to be_displayed
+        expect(settings.use_alt_text_as_caption_checked?).to be false
+      end
+
+      it "uses alt text as caption when checkbox is enabled" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        expect(settings.use_alt_text_as_caption_checked?).to be true
+        expect(blocks.first.image_caption.text).to eq("Alt text")
+      end
+
+      it "disables inputs for image caption and decorative image when using alt text as caption" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        expect(settings.image_caption_input).not_to be_enabled
+        expect(settings.decorative_image_input).not_to be_enabled
+      end
+
+      it "persists alt text as caption after closing settings tray" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image_caption.text).to eq("Alt text")
+      end
+
+      it "reverts to default caption when checkbox is unchecked" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        expect(settings.use_alt_text_as_caption_checked?).to be false
+        expect(blocks.first.image_caption.text).to eq("Image caption")
+      end
+
+      it "persists default caption after unchecking and closing settings tray" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        settings.use_alt_text_as_caption_checkbox.click
+        wait_for_ajaximations
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image_caption.text).to eq("Image caption")
+      end
+    end
+
+    describe "alt text" do
+      it "adds alt text" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        expect(blocks.first.image.attribute("alt")).to eq("")
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.alt_text_input.send_keys("Alt text")
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image.attribute("alt")).to eq("Alt text")
+      end
+
+      it "sets empty alt text and no role attribute by default" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        expect(blocks.first.image.attribute("alt")).to eq("")
+        expect(blocks.first.image.attribute("role")).to be_nil
+      end
+
+      it "shows unchecked decorative image checkbox by default" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        expect(settings.decorative_image_checkbox).to be_displayed
+        expect(settings.alt_text_input).to be_enabled
+        expect(settings.image_caption_input).to be_enabled
+        expect(settings.use_alt_text_as_caption_input).to be_enabled
+      end
+
+      it "sets presentation role attribute when image is marked as decorative" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.decorative_image_checkbox.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image.attribute("alt")).to eq("")
+        expect(blocks.first.image.attribute("role")).to eq("presentation")
+      end
+
+      it "disables alt text and caption as alt text inputs when image is marked as decorative" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.decorative_image_checkbox.click
+        wait_for_ajaximations
+
+        expect(settings.alt_text_input).not_to be_enabled
+        expect(settings.image_caption_input).to be_enabled
+        expect(settings.use_alt_text_as_caption_input).not_to be_enabled
+      end
+
+      it "restores alt text and removes role attribute when image is no longer marked as decorative" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.alt_text_input.send_keys("Alt text")
+        settings.decorative_image_checkbox.click
+        wait_for_ajaximations
+
+        settings.decorative_image_checkbox.click
+        wait_for_ajaximations
+
+        expect(settings.alt_text_input).to be_enabled
+        expect(settings.image_caption_input).to be_enabled
+        expect(settings.use_alt_text_as_caption_input).to be_enabled
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image.attribute("alt")).to eq("Alt text")
+        expect(blocks.first.image.attribute("role")).to be_nil
+      end
+
+      it "persists decorative image state after closing and reopening settings tray" do
+        blocks.first.block_title.title.click
+        wait_for_ajaximations
+
+        blocks.first.add_external_image("https://placehold.co/600x400.png")
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        settings.decorative_image_checkbox.click
+        wait_for_ajaximations
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.image.attribute("role")).to eq("presentation")
+      end
+    end
+
+    it "removes the image" do
+      blocks.first.block_title.title.click
+      wait_for_ajaximations
+
+      blocks.first.add_external_image("https://placehold.co/600x400.png")
+
+      blocks.first.settings_button.click
+      wait_for_ajaximations
+
+      settings = blocks.first.settings
+      expect(settings.replace_image_button).to be_displayed
+
+      settings.remove_image_button.click
+      wait_for_ajaximations
+
+      expect(settings.upload_image_button).to be_displayed
+      expect(blocks.first.add_image_button).to be_displayed
+      expect(element_exists?(blocks.first.image_selector)).to be false
+      expect(element_exists?(blocks.first.image_placeholder_selector)).to be false
+    end
+  end
+
+  shared_examples "editing text" do
+    it "edits text content" do
+      expect(blocks.first.text_content).to be_displayed
+      expect(blocks.first.text_content.text).to eq("Click to edit")
+
+      blocks.first.text_content.click
+      blocks.first.type("This is a text block.")
+      wait_for_ajaximations
+      click_outside_block
+
+      expect(blocks.first.text_content.text).to eq("This is a text block.")
+    end
+  end
+
+  context "Editing blocks" do
+    context "Separator block" do
+      before do
+        add_a_block("Divider", "Separator line")
+      end
+
+      include_examples "editing background color"
+      include_examples "no block title"
+
+      it "changes separator color" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.change_separator_color("00ff00")
+        wait_for_ajaximations
+        expect(blocks.first.separator_line.css_value("border-color")).to eq("rgb(0, 255, 0)")
+      end
+
+      it "preserves separator color after closing settings tray" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.change_separator_color("00ff00")
+        wait_for_ajaximations
+        expect(blocks.first.separator_line.css_value("border-color")).to eq("rgb(0, 255, 0)")
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+        expect(blocks.first.separator_line.css_value("border-color")).to eq("rgb(0, 255, 0)")
+      end
+
+      it "changes separator thickness" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        separator_line = blocks.first.separator_line
+        thicknesses = {}
+
+        %w[Small Medium Large].each do |size|
+          settings.separator_size_radio_option(size).click
+          wait_for_ajaximations
+          thicknesses[size] = separator_line.css_value("border-bottom-width").to_f
+        end
+
+        aggregate_failures "separator thickness relationships" do
+          thicknesses.each_value do |thickness|
+            expect(thickness).to be > 0
+          end
+
+          expect(thicknesses["Small"]).to be < thicknesses["Medium"]
+          expect(thicknesses["Medium"]).to be < thicknesses["Large"]
+          expect(thicknesses["Small"]).to be < thicknesses["Large"]
+        end
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        aggregate_failures "separator thickness relationships" do
+          thicknesses.each_value do |thickness|
+            expect(thickness).to be > 0
+          end
+
+          expect(thicknesses["Small"]).to be < thicknesses["Medium"]
+          expect(thicknesses["Medium"]).to be < thicknesses["Large"]
+          expect(thicknesses["Small"]).to be < thicknesses["Large"]
+        end
+      end
+    end
+
+    context "Highlight block" do
+      before do
+        add_a_block("Text", "Highlight")
+      end
+
+      include_examples "editing background color"
+      include_examples "no block title"
+
+      it "toggles highlight icon display" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        toggle = blocks.first.settings.display_icon_toggle
+        expect(blocks.first.highlight_icon).to be_displayed
+
+        toggle.click
+        wait_for_ajaximations
+        expect(element_exists?(blocks.first.highlight_icon_selector)).to be false
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+        expect(element_exists?(blocks.first.highlight_icon_selector)).to be false
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        toggle = blocks.first.settings.display_icon_toggle
+        toggle.click
+        wait_for_ajaximations
+        expect(blocks.first.highlight_icon).to be_displayed
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+        expect(blocks.first.highlight_icon).to be_displayed
+      end
+
+      it "changes highlight color" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.change_highlight_color("00ff00")
+        wait_for_ajaximations
+        expect(blocks.first.highlight.css_value("background-color")).to eq("rgba(0, 255, 0, 1)")
+      end
+
+      it "preserves highlight color after closing settings tray" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        blocks.first.settings.change_highlight_color("00ff00")
+        wait_for_ajaximations
+        expect(blocks.first.highlight.css_value("background-color")).to eq("rgba(0, 255, 0, 1)")
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+        expect(blocks.first.highlight.css_value("background-color")).to eq("rgba(0, 255, 0, 1)")
+      end
+    end
+
+    context "Media block" do
+      before do
+        add_a_block("Multimedia", "Media")
+      end
+
+      include_examples "editing block title"
+      include_examples "editing background color"
+
+      it "displays placeholder in edit preview mode when no media is added" do
+        expect(blocks.first.media_placeholder).to be_displayed
+        expect(element_exists?(blocks.first.add_media_button_selector)).to be false
+        expect(element_exists?(blocks.first.media_content_selector)).to be false
+      end
+
+      it "displays add media button in edit mode when no media is added" do
+        blocks.first.media_placeholder.click
+        wait_for_ajaximations
+
+        expect(blocks.first.add_media_button).to be_displayed
+        expect(element_exists?(blocks.first.media_placeholder_selector)).to be false
+        expect(element_exists?(blocks.first.media_content_selector)).to be false
+      end
+
+      it "displays add media button in settings tray when no media is added" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+
+        expect(settings.choose_media_button).to be_displayed
+        expect(settings.choose_media_button.text).to eq("Add media")
+        expect(element_exists?(settings.replace_media_button_selector, true)).to be false
+      end
+
+      it "adds media" do
+        blocks.first.media_placeholder.click
+        wait_for_ajaximations
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        embed_url = "https://www.youtube.com/embed/dwXwah-feFk"
+        blocks.first.add_external_media(video_url)
+
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(embed_url)
+      end
+
+      it("adds media from settings tray") do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        embed_url = "https://www.youtube.com/embed/dwXwah-feFk"
+        settings.add_external_media_from_settings_tray(video_url)
+
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(embed_url)
+      end
+
+      it "does not display placeholder after media has been added" do
+        blocks.first.media_placeholder.click
+        wait_for_ajaximations
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        blocks.first.add_external_media(video_url)
+
+        expect(element_exists?(blocks.first.media_placeholder_selector)).to be false
+        expect(element_exists?(blocks.first.add_media_button_selector)).to be false
+      end
+
+      it "displays replace media button in settings tray after media has been added" do
+        blocks.first.media_placeholder.click
+        wait_for_ajaximations
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        blocks.first.add_external_media(video_url)
+
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+        expect(settings.replace_media_button).to be_displayed
+        expect(settings.replace_media_button.text).to eq("Replace media")
+        expect(element_exists?(settings.choose_media_button_selector, true)).to be false
+      end
+
+      it "preserves media after closing settings tray" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        embed_url = "https://www.youtube.com/embed/dwXwah-feFk"
+        settings.add_external_media_from_settings_tray(video_url)
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(embed_url)
+
+        blocks.first.settings_tray_component.close_button.click
+        wait_for_ajaximations
+
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(embed_url)
+      end
+
+      it "replaces media from settings tray" do
+        blocks.first.settings_button.click
+        wait_for_ajaximations
+
+        settings = blocks.first.settings
+
+        video_url = "https://www.youtube.com/watch?v=dwXwah-feFk"
+        embed_url = "https://www.youtube.com/embed/dwXwah-feFk"
+        settings.add_external_media_from_settings_tray(video_url)
+
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(embed_url)
+
+        new_video_url = "https://www.youtube.com/watch?v=5MgBikgcWnY"
+        new_embed_url = "https://www.youtube.com/embed/5MgBikgcWnY"
+        settings.replace_with_external_media(new_video_url)
+        wait_for_ajaximations
+
+        expect(blocks.first.media_content).to be_displayed
+        expect(blocks.first.media_content.attribute("src")).to eq(new_embed_url)
+      end
+    end
+
+    context "Image block" do
+      before do
+        add_a_block("Image", "Full width image")
+      end
+
+      include_examples "editing block title"
+      include_examples "editing background color"
+      include_examples "editing image"
+    end
+
+    context "Text block" do
+      before do
+        add_a_block("Text", "Text column")
+      end
+
+      include_examples "editing block title"
+      include_examples "editing background color"
+      include_examples "editing text"
+    end
+
+    context "Image + Text block" do
+      before do
+        add_a_block("Image", "Image + text")
+      end
+
+      include_examples "editing block title"
+      include_examples "editing background color"
+      include_examples "editing text"
+      include_examples "editing image"
+
+      def expect_image_position(image_element, text_element, expected_image_position)
+        image_x = image_element.location.x
+        text_x = text_element.location.x
+
+        case expected_image_position
+        when :left
+          expect(image_x).to be < text_x
+        when :right
+          expect(image_x).to be > text_x
+        end
+      end
+
+      [
+        ["Image on the left", :left],
+        ["Image on the right", :right]
+      ].each do |arrangement, expected_image_position|
+        it "changes element arrangement - #{arrangement.downcase}" do
+          blocks.first.block_title.title.click
+          wait_for_ajaximations
+
+          blocks.first.add_external_image("https://placehold.co/600x400.png")
+          wait_for_ajaximations
+          blocks.first.type("Sample text")
+          wait_for_ajaximations
+
+          blocks.first.settings_button.click
+          wait_for_ajaximations
+
+          blocks.first.settings.element_arrangement_radio_option(arrangement).click
+          wait_for_ajaximations
+          expect_image_position(blocks.first.image, blocks.first.rce_wrapper, expected_image_position)
+
+          blocks.first.settings_tray_component.close_button.click
+          wait_for_ajaximations
+
+          click_outside_block
+
+          expect_image_position(blocks.first.image, blocks.first.text_content, expected_image_position)
+        end
+      end
+
+      [
+        ["1:1", 1.0],
+        ["2:1", 2.0]
+      ].each do |ratio_name, expected_ratio|
+        it "changes text-to-image ratio - #{ratio_name}" do
+          blocks.first.block_title.title.click
+          wait_for_ajaximations
+
+          blocks.first.add_external_image("https://placehold.co/600x400.png")
+          wait_for_ajaximations
+          blocks.first.type("Sample text")
+          wait_for_ajaximations
+
+          blocks.first.settings_button.click
+          wait_for_ajaximations
+
+          blocks.first.settings.text_to_image_ratio_radio_option(ratio_name).click
+          wait_for_ajaximations
+
+          actual_ratio = blocks.first.image_text_ratio(blocks.first.image, blocks.first.rce_wrapper)
+          expect(actual_ratio).to be_within(0.1).of(expected_ratio)
+
+          blocks.first.settings_tray_component.close_button.click
+          wait_for_ajaximations
+
+          click_outside_block
+
+          actual_ratio = blocks.first.image_text_ratio(blocks.first.image, blocks.first.text_content)
+          expect(actual_ratio).to be_within(0.1).of(expected_ratio)
+        end
       end
     end
   end

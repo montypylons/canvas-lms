@@ -640,12 +640,14 @@ class AccountsController < ApplicationController
   #
   # @returns TermsOfService
   def terms_of_service
-    keys = %w[id terms_type passive account_id]
-    tos = @account.root_account.terms_of_service
-    res = tos.attributes.slice(*keys)
-    res["content"] = tos.terms_of_service_content&.content
-    res["self_registration_type"] = @account.self_registration_type
-    render json: res
+    GuardRail.activate(:secondary) do
+      keys = %w[id terms_type passive account_id]
+      tos = @account.root_account.terms_of_service
+      res = tos.attributes.slice(*keys)
+      res["content"] = tos.terms_of_service_content&.content
+      res["self_registration_type"] = @account.self_registration_type
+      render json: res
+    end
   end
 
   # @API Get help links
@@ -935,8 +937,8 @@ class AccountsController < ApplicationController
     includes -= %w[permissions sections needs_grading_count total_scores]
     all_precalculated_permissions = nil
 
-    page_opts = { total_entries: nil }
-    page_opts = {} if includes.include?("ui_invoked") # let Folio calculate total entries
+    # Let Folio calculate total entries for pagination when invoked from web interface
+    page_opts = in_app? ? {} : { total_entries: nil }
 
     GuardRail.activate(:secondary) do
       @courses = Api.paginate(@courses, self, api_v1_account_courses_url, page_opts)
@@ -1052,11 +1054,19 @@ class AccountsController < ApplicationController
 
             enable_horizon = params.dig(:account, :settings, :horizon_account, :value)
             unless enable_horizon.nil?
+              horizon_enabled = value_to_boolean(enable_horizon)
               existing_account_ids = @account.root_account.settings[:horizon_account_ids] || []
-              if value_to_boolean(enable_horizon) && existing_account_ids.length + 1 > HORIZON_MAX_ACCOUNTS
+
+              if horizon_enabled && existing_account_ids.length + 1 > HORIZON_MAX_ACCOUNTS
                 @account.errors.add(:horizon_account, t("You cannot enable horizon_account on more than %{max_accounts} accounts", max_accounts: HORIZON_MAX_ACCOUNTS))
               else
-                @account.horizon_account = value_to_boolean(enable_horizon)
+                @account.horizon_account = horizon_enabled
+
+                if horizon_enabled && existing_account_ids.empty?
+                  @account.delay(singleton: "provision_horizon_tenants:#{@domain_root_account.uuid}").provision_horizon_tenants(@domain_root_account, @current_user)
+                elsif !horizon_enabled && existing_account_ids.length == 1
+                  @account.delay(singleton: "delete_horizon_tenants:#{@domain_root_account.uuid}").delete_horizon_tenants(@domain_root_account, @current_user)
+                end
               end
             end
 
@@ -1362,7 +1372,6 @@ class AccountsController < ApplicationController
              enable_eportfolios
              enable_profiles
              enable_turnitin
-             enable_content_a11y_checker
              suppress_assignments
              include_integration_ids_in_gradebook_exports
              show_scheduler
@@ -1470,17 +1479,30 @@ class AccountsController < ApplicationController
   end
 
   def acceptable_use_policy
-    TermsOfService.ensure_terms_for_account(@domain_root_account)
-    if request.format.html?
-      # disable navigation_header JavaScript bundle (in _head.html.erb) to
-      # prevent console errors caused by missing DOM elements in this bare layout
-      @headers = false
-      # disable custom js/css
-      @exclude_account_css = @exclude_account_js = true
-    end
-    respond_to do |format|
-      format.html { render html: "", layout: "bare" }
-      format.json { render json: { content: @domain_root_account.terms_of_service.terms_of_service_content&.content }, status: :ok }
+    GuardRail.activate(:secondary) do
+      TermsOfService.ensure_terms_for_account(@domain_root_account)
+      external_url = TermsOfService.external_url(@domain_root_account)
+      respond_to do |format|
+        format.html do
+          if external_url
+            redirect_to external_url, allow_other_host: true, status: :found # HTTP 302
+          else
+            # disable navigation_header JavaScript bundle (in _head.html.erb) to
+            # prevent console errors caused by missing DOM elements in this bare layout
+            @headers = false
+            # disable custom js/css
+            @exclude_account_css = @exclude_account_js = true
+            render html: "", layout: "bare"
+          end
+        end
+        format.json do
+          if external_url
+            render json: { redirectUrl: external_url }, status: :ok
+          else
+            render json: { content: @domain_root_account.terms_of_service.terms_of_service_content&.content }, status: :ok
+          end
+        end
+      end
     end
   end
 
@@ -2042,6 +2064,7 @@ class AccountsController < ApplicationController
   def remove_account_user
     admin = @context.account_users.find(params[:id])
     if authorized_action(admin, @current_user, :destroy)
+      admin.current_user = @current_user
       admin.destroy
       respond_to do |format|
         format.html { redirect_to account_settings_url(@context, anchor: "tab-users") }
@@ -2181,7 +2204,6 @@ class AccountsController < ApplicationController
                                    :enable_profiles,
                                    :enable_gravatar,
                                    :enable_turnitin,
-                                   :enable_content_a11y_checker,
                                    :equella_endpoint,
                                    :equella_teaser,
                                    :external_notification_warning,
@@ -2257,6 +2279,7 @@ class AccountsController < ApplicationController
                                    { conditional_release: [:value, :locked] }.freeze,
                                    { enable_course_paces: [:value, :locked] }.freeze,
                                    { allow_observers_in_appointment_groups: [:value] }.freeze,
+                                   { default_allow_observer_signup: [:value] }.freeze,
                                    :enable_inbox_signature_block,
                                    :disable_inbox_signature_block_for_students,
                                    :enable_inbox_auto_response,

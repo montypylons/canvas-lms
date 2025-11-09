@@ -305,6 +305,9 @@
     "operators_a2ef9a93": {
         "message": "Χειριστές"
     },
+    "options_3ab0ea65": {
+        "message": "Επιλογές"
+    },
     "orange_81386a62": {
         "message": "Πορτοκαλί"
     },
@@ -355,6 +358,9 @@
     },
     "relationships_6602af70": {
         "message": "Σχέσεις"
+    },
+    "remove_f47dc62a": {
+        "message": "Αφαίρεση"
     },
     "replace_e61834a7": {
         "message": "Αντικατάσταση"

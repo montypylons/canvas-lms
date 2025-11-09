@@ -3317,18 +3317,175 @@ describe UsersController do
       end
     end
 
-    context "with widget_dashboard feature enabled" do
+    context "with widget_dashboard feature allowed" do
       before do
-        Account.default.enable_feature!(:widget_dashboard)
+        # Make feature available at account level - user preference defaults to OFF (opt-in required)
+        Account.default.allow_feature!(:widget_dashboard)
       end
 
       it "includes each course once even for multiple enrollments" do
         course_with_student_logged_in(active_all: true)
+        @user.preferences[:widget_dashboard_user_preference] = true
+        @user.save!
         @section = @course.course_sections.create! name: "section 2"
         multiple_student_enrollment(@user, @section)
         @current_user = @user
         get "user_dashboard"
         expect(assigns[:js_env][:SHARED_COURSE_DATA].length).to eq 1
+      end
+
+      describe "dashboard routing" do
+        before :once do
+          @observer = user_factory(active_all: true)
+          @student = user_factory(active_all: true)
+          @course = course_factory(active_all: true)
+          @course.enroll_student(@student)
+        end
+
+        before do
+          user_session(@observer)
+        end
+
+        it "does not show widget dashboard to observer by default when feature is allowed" do
+          @observer_enrollment = @course.enroll_user(@observer, "ObserverEnrollment", section: @course.course_sections.first, enrollment_state: "active")
+          @observer_enrollment.update_attribute(:associated_user_id, @student.id)
+          user_session(@observer)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "shows legacy dashboard if not actively observing" do
+          @observer_enrollment = @course.enroll_user(@observer, "ObserverEnrollment", section: @course.course_sections.first, enrollment_state: "active")
+          user_session(@observer)
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "does not show widget dashboard to students by default when feature is allowed" do
+          user_session(@student)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "shows widget dashboard to students who opt in when feature is allowed" do
+          @student.preferences[:widget_dashboard_user_preference] = true
+          @student.save!
+          user_session(@student)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard_card
+        end
+
+        it "shows legacy dashboard to teachers" do
+          @teacher = user_factory(active_all: true)
+          @course.enroll_teacher(@teacher)
+          user_session(@teacher)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "shows legacy dashboard if user has at least one non student enrollment" do
+          @mixed_user = user_factory(active_all: true)
+          @course.enroll_student(@mixed_user)
+          @course.enroll_teacher(@mixed_user)
+          user_session(@mixed_user)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "respects user preference when feature is allowed (can override)" do
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "respects user preference when feature is allowed_on (can override, default on)" do
+          Account.default.set_feature_flag!(:widget_dashboard, Feature::STATE_DEFAULT_ON)
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "ignores user preference when feature is locked on (cannot override)" do
+          Account.default.enable_feature!(:widget_dashboard)
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+        end
+      end
+
+      context "with sub-account widget_dashboard control" do
+        before :once do
+          @sub_account = Account.default.sub_accounts.create!(name: "Sub Account")
+          @course = course_factory(account: @sub_account, active_all: true)
+          @student = user_factory(active_all: true)
+          @course.enroll_student(@student, enrollment_state: "active")
+        end
+
+        before do
+          user_session(@student)
+        end
+
+        it "shows widget dashboard when sub-account enables it" do
+          @sub_account.enable_feature!(:widget_dashboard)
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+        end
+
+        it "does not show widget dashboard when root disables it" do
+          Account.default.disable_feature!(:widget_dashboard)
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+        end
+
+        it "shows widget dashboard when enrolled in multiple accounts and one enables it" do
+          @sub_account2 = Account.default.sub_accounts.create!(name: "Sub Account 2")
+          @course2 = course_factory(account: @sub_account2, active_all: true)
+          @course2.enroll_student(@student, enrollment_state: "active")
+
+          @sub_account.enable_feature!(:widget_dashboard)
+          @sub_account2.disable_feature!(:widget_dashboard)
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+        end
+
+        it "respects user preference when at least one account allows override" do
+          @sub_account.allow_feature!(:widget_dashboard)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+        end
+
+        it "ignores user preference when any account locks feature on" do
+          @sub_account.enable_feature!(:widget_dashboard)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+        end
       end
     end
   end
@@ -3666,11 +3823,12 @@ describe UsersController do
     let(:admin) { account_admin_user(active_all: true)  }
 
     def add_mobile_access_token(user)
-      user.access_tokens.create!(purpose: "mobile")
+      user.access_tokens.create!(purpose: "active mobile token")
+      user.access_tokens.create!(purpose: "expired mobile token", permanent_expires_at: 1.day.ago)
 
       @sns_client = double
       allow(DeveloperKey).to receive(:sns).and_return(@sns_client)
-      expect(@sns_client).to receive(:create_platform_endpoint).and_return(endpoint_arn: "arn")
+      allow(@sns_client).to receive(:create_platform_endpoint).and_return(endpoint_arn: "arn")
       user.access_tokens.each_with_index { |ac, i| ac.notification_endpoints.create!(token: "token #{i}") }
     end
 
@@ -3708,7 +3866,7 @@ describe UsersController do
 
       expect(response).to have_http_status :ok
       expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
-      expect(user.reload.notification_endpoints.count).to be < starting_notification_endpoints_count
+      expect(user.reload.notification_endpoints.count).to eq(starting_notification_endpoints_count)
     end
 
     it "allows admin to expire mobile sessions for one user" do
@@ -3719,6 +3877,33 @@ describe UsersController do
       expect(response).to have_http_status :ok
       expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
       expect(user2.reload.access_tokens.take.permanent_expires_at).to be_nil
+    end
+
+    it "does not allow admins to expire mobile sessions for users in other accounts" do
+      other_account = Account.create!(name: "Other Account")
+      other_user = user_with_pseudonym(active_all: true, account: other_account)
+      add_mobile_access_token(other_user)
+
+      user_session(admin)
+      delete "expire_mobile_sessions", params: { id: other_user.id }, format: :json
+
+      expect(response).to have_http_status :not_found
+      expect(other_user.reload.access_tokens.take.permanent_expires_at).to be_nil
+    end
+
+    it "allows admin to expire mobile sessions for everyone except active admins" do
+      other_admin = account_admin_user(user: user_with_pseudonym, active_all: true)
+      add_mobile_access_token(other_admin)
+
+      user2.account_users.create! account: Account.default, workflow_state: "deleted"
+      add_mobile_access_token(user2)
+
+      user_session(admin)
+      delete "expire_mobile_sessions", params: { skip_admins: "1" }, format: :json
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(user2.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(other_admin.reload.access_tokens.take.permanent_expires_at).to be_nil
     end
 
     it "only expires access tokens associated to mobile app developer keys" do
@@ -3838,6 +4023,310 @@ describe UsersController do
       expect(response).to be_successful
       expect(json_parse["deleted"]).to be true
       expect(json_parse["status"]).to eq("ok")
+    end
+  end
+
+  describe "dashboard with course grades" do
+    before do
+      # Enable feature at account level - widget dashboard shown by default
+      Account.default.enable_feature!(:widget_dashboard)
+    end
+
+    context "when student accesses their own dashboard" do
+      before do
+        course_with_student(active_all: true)
+        user_session(@student)
+      end
+
+      it "shows course grades with percentage grading scheme when standard disabled" do
+        @course.grading_standard_enabled = false
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:gradingScheme]).to eq("percentage")
+      end
+
+      it "shows course grades with grading standard data when letter grading enabled" do
+        @course.grading_standard_enabled = true
+        @course.grading_standard = @course.grading_standards.create!(
+          title: "Letter Grading Scheme",
+          data: { "A" => 0.9, "F" => 0 },
+          scaling_factor: 1.0,
+          points_based: false,
+          workflow_state: "active"
+        )
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:gradingScheme]).to be_an(Array)
+        expect(course_data.first[:gradingScheme]).to include(["A", 0.9])
+      end
+
+      it "includes courses when hide_final_grades is false" do
+        @course.settings = @course.settings.merge(hide_final_grades: false)
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:courseId]).to eq(@course.id.to_s)
+      end
+    end
+
+    context "when observer accesses observed student dashboard" do
+      before do
+        course_with_student(active_all: true)
+        @observer = user_with_pseudonym(active_all: true)
+        @course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+        user_session(@observer)
+        session[:observed_user_id] = @student.id
+      end
+
+      it "shows observed student's course grades when enrollment grants read_grades permission" do
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:courseId]).to eq(@course.id.to_s)
+      end
+
+      it "excludes courses when observer lacks all grade permissions" do
+        @course.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        student_courses = course_data.select { |c| c[:courseId] == @course.id.to_s }
+        expect(student_courses).to be_empty
+      end
+    end
+
+    context "grade priority and display" do
+      before do
+        course_with_student(active_all: true)
+        user_session(@student)
+        @assignment = @course.assignments.create!(title: "Test", points_possible: 100)
+      end
+
+      it "displays override score when present" do
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 80)
+        @enrollment.find_score(course_score: true).update!(override_score: 95)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data.first[:currentGrade]).to eq(95.0)
+      end
+
+      it "displays current score when no override present" do
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 85)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(current_score: 80, final_score: 85)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data.first[:currentGrade]).to eq(80.0)
+      end
+
+      it "sorts courses alphabetically by name" do
+        course_with_student_logged_in(active_all: true)
+        @course.update!(name: "Zebra Course")
+
+        @course2 = course_factory(active_all: true)
+        @course2.update!(name: "Apple Course")
+        @course2.enroll_student(@user, enrollment_state: "active")
+
+        get :user_dashboard
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_names = course_data.pluck(:courseName)
+
+        expect(course_names).to eq(["Apple Course", "Zebra Course"])
+      end
+    end
+
+    context "enrollment filtering" do
+      before do
+        @student = user_factory(active_all: true)
+        @current_course = course_factory(active_all: true)
+        @current_course.enroll_student(@student, enrollment_state: "active")
+        user_session(@student)
+      end
+
+      it "excludes courses with section dates in the past" do
+        # Create a course with section that ended
+        past_course = course_factory(active_all: true)
+        past_section = past_course.course_sections.create!(name: "Past Section", end_at: 1.week.ago)
+        past_course.enroll_student(@student, section: past_section, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not past course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
+
+      it "excludes courses with conclude_at dates in the past" do
+        # Create a course that concluded
+        past_course = course_factory(active_all: true)
+        past_course.update!(conclude_at: 1.week.ago)
+        past_course.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not concluded course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
+
+      it "excludes completed enrollments" do
+        # Create a new student with only one course to test completed enrollment
+        student = user_factory(active_all: true)
+        course = course_factory(active_all: true)
+        enrollment = course.enroll_student(student, enrollment_state: "active")
+
+        # Conclude the enrollment
+        enrollment.workflow_state = "completed"
+        enrollment.save!
+
+        user_session(student)
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        expect(course_data).to be_empty
+      end
+
+      it "excludes hard inactive enrollments" do
+        # Create a new student with only one course to test inactive enrollment
+        student = user_factory(active_all: true)
+        course = course_factory(active_all: true)
+        enrollment = course.enroll_student(student, enrollment_state: "active")
+
+        # Make enrollment inactive
+        enrollment.workflow_state = "inactive"
+        enrollment.save!
+
+        user_session(student)
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        expect(course_data).to be_empty
+      end
+
+      it "excludes elementary homeroom courses for students" do
+        # Enable elementary subject setting
+        @current_course.account.enable_as_k5_account!
+
+        # Create an elementary homeroom course
+        homeroom = course_factory(active_all: true)
+        homeroom.homeroom_course = true
+        homeroom.save!
+        homeroom.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include regular course but not homeroom
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(homeroom.id.to_s)
+      end
+
+      it "excludes horizon courses for students" do
+        # Enable the horizon course feature flag
+        @current_course.account.enable_feature!(:horizon_course_setting)
+
+        # Create a horizon course
+        horizon = course_factory(active_all: true)
+        horizon.update!(horizon_course: true)
+        horizon.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include regular course but not horizon
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(horizon.id.to_s)
+      end
+
+      it "excludes unpublished courses for students" do
+        # Create an unpublished course
+        unpublished = course_factory
+        unpublished.workflow_state = "claimed"
+        unpublished.save!
+        unpublished.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include published course but not unpublished
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(unpublished.id.to_s)
+      end
+    end
+
+    context "observer enrollment filtering" do
+      before do
+        @student = user_factory(active_all: true)
+        @observer = user_with_pseudonym(active_all: true)
+        @current_course = course_factory(active_all: true)
+        @current_course.enroll_student(@student, enrollment_state: "active")
+        @current_course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+        user_session(@observer)
+        session[:observed_user_id] = @student.id
+      end
+
+      it "excludes observed student's past courses" do
+        # Create a past course for the student
+        past_course = course_factory(active_all: true)
+        past_section = past_course.course_sections.create!(name: "Past Section", end_at: 1.week.ago)
+        past_course.enroll_student(@student, section: past_section, enrollment_state: "active")
+        past_course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not past course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
     end
   end
 end

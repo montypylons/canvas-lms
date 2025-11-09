@@ -47,6 +47,10 @@ describe CC::TopicResources do
     Nokogiri::XML(doc.target!)
   end
 
+  before do
+    allow_any_instance_of(Course).to receive(:a11y_checker_enabled?).and_return(false)
+  end
+
   let(:ccc_schema) { get_ccc_schema }
   let(:mock_course) { course_model }
   let(:mock_user) { user_model }
@@ -66,13 +70,10 @@ describe CC::TopicResources do
     allow(mock_course.root_account).to receive(:feature_enabled?).with(:horizon_course_setting)
     allow(mock_course.root_account).to receive(:feature_enabled?).with(:file_association_access)
     allow(mock_course.root_account).to receive(:feature_enabled?).with(:allow_attachment_association_creation)
+    allow(mock_course.root_account).to receive(:feature_enabled?).with(:lti_asset_processor).and_return(false)
   end
 
   describe "#create_canvas_topic" do
-    before do
-      allow(mock_course.account).to receive(:feature_enabled?).with(:assign_to_differentiation_tags).and_return(false)
-    end
-
     context "reply_to_entry_required_count" do
       context "when discussion_checkpoints is enabled" do
         before do

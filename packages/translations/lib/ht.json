@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "Imaj klè"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Efase fichye seleksyone"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Efase fichye seleksyone: { filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Klike oswa klike epi peze touch majiskil la pou w ka gen aksè a editè html la."
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "Klèb (Konbinezon)"
+    },
+    "collab_575ac7bc": {
+        "message": "Kolaborasyon"
     },
     "collaborations_5c56c15f": {
         "message": "Kolaborasyon"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "Latvyen"
     },
+    "learn_ad3b3505": {
+        "message": "Aprann"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "Aprann plis sou lyen adjasan yo"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "Operatè"
     },
+    "options_3ab0ea65": {
+        "message": "Opsyon"
+    },
     "or_9b70ccaa": {
         "message": "Oswa"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "Tanpri antre yon non fichye."
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "Tanpri, antre yon URL videyo ki valid sou yon platfòm ki konpatib."
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "Seleksyone yon fichye nan tip sa ki konpatib yo tanpri"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "Ikòn Relijyon"
     },
+    "remove_f47dc62a": {
+        "message": "Retire"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "Elimine { filename }"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Elimine stil antèt"
     },
     "remove_link_d1f2f4d0": {
         "message": "Elimine Lyen"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Elimine Medya Studio"
     },
     "replace_all_d3d68b3": {
         "message": "Ranplase Tout"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "Menm si videyo ou a gen yon bèl tit nan navigatè a, nou pa rive kapab aktyalize li nan baz de done a."
     },
+    "thumbnail_e0de666f": {
+        "message": "Viyèt"
+    },
     "timebar_a4d18443": {
         "message": "Ba a lè"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "Lektè videyo pou { title }"
     },
+    "video_url_889d3263": {
+        "message": "URL Videyo"
+    },
     "vietnamese_e7a76583": {
         "message": "Vyentamyen"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "Webcam ou an gendwa ap itilize deja."
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "URL entegrasyon Youtube"
     },
     "zeta_5ef24f0e": {
         "message": "Zeta"

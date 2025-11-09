@@ -57,7 +57,7 @@ RSpec.describe PeerReview::PeerReviewCommonService do
   end
 
   before do
-    course.enable_feature!(:peer_review_allocation_and_grading)
+    course.enable_feature!(:peer_review_grading)
   end
 
   describe "#initialize" do
@@ -77,108 +77,6 @@ RSpec.describe PeerReview::PeerReviewCommonService do
       expect(simple_service.instance_variable_get(:@due_at)).to be_nil
       expect(simple_service.instance_variable_get(:@unlock_at)).to be_nil
       expect(simple_service.instance_variable_get(:@lock_at)).to be_nil
-    end
-  end
-
-  describe "#validate_parent_assignment" do
-    it "does not raise an error for a valid parent assignment" do
-      expect { service.send(:validate_parent_assignment) }.not_to raise_error
-    end
-
-    it "raises an error when parent assignment is nil" do
-      service.instance_variable_set(:@parent_assignment, nil)
-      expect { service.send(:validate_parent_assignment) }.to raise_error(
-        PeerReview::PeerReviewInvalidParentAssignmentError,
-        "Invalid parent assignment"
-      )
-    end
-
-    it "raises an error when parent assignment is not an Assignment object" do
-      service.instance_variable_set(:@parent_assignment, "not an assignment")
-      expect { service.send(:validate_parent_assignment) }.to raise_error(
-        PeerReview::PeerReviewInvalidParentAssignmentError,
-        "Invalid parent assignment"
-      )
-    end
-
-    it "raises an error when parent assignment is not persisted" do
-      new_assignment = Assignment.new(context: course, title: "New Assignment")
-      service.instance_variable_set(:@parent_assignment, new_assignment)
-      expect { service.send(:validate_parent_assignment) }.to raise_error(
-        PeerReview::PeerReviewInvalidParentAssignmentError,
-        "Invalid parent assignment"
-      )
-    end
-  end
-
-  describe "#validate_assignment_submission_types" do
-    it "does not raise an error for non-external tool assignments" do
-      # submission types for this assignment are "online_text_entry,online_upload"
-      expect { service.send(:validate_assignment_submission_types) }.not_to raise_error
-    end
-
-    it "raises an error for external tool assignments" do
-      external_tool_assignment = assignment_model(
-        course:,
-        title: "External Tool Assignment",
-        submission_types: "external_tool"
-      )
-      service.instance_variable_set(:@parent_assignment, external_tool_assignment)
-
-      expect { service.send(:validate_assignment_submission_types) }.to raise_error(
-        PeerReview::PeerReviewInvalidAssignmentSubmissionTypesError,
-        "Peer reviews cannot be used with External Tool assignments"
-      )
-    end
-  end
-
-  describe "#validate_feature_enabled" do
-    it "does not raise an error when feature is enabled" do
-      expect { service.send(:validate_feature_enabled) }.not_to raise_error
-    end
-
-    it "raises an error when feature is disabled" do
-      course.disable_feature!(:peer_review_allocation_and_grading)
-      expect { service.send(:validate_feature_enabled) }.to raise_error(
-        PeerReview::PeerReviewFeatureDisabledError,
-        "Peer Review Allocation and Grading feature flag is disabled"
-      )
-    end
-  end
-
-  describe "#validate_peer_review_not_exist" do
-    it "does not raise an error when no peer review sub assignment exists" do
-      expect { service.send(:validate_peer_review_sub_assignment_not_exist) }.not_to raise_error
-    end
-
-    it "raises an error when peer review sub assignment already exists" do
-      PeerReviewSubAssignment.create!(parent_assignment:, context: course)
-      expect { service.send(:validate_peer_review_sub_assignment_not_exist) }.to raise_error(
-        PeerReview::PeerReviewSubAssignmentExistsError,
-        "Peer review sub assignment exists"
-      )
-    end
-  end
-
-  describe "#validate_peer_review_sub_assignment_exists" do
-    it "does not raise an error when peer review sub assignment exists" do
-      PeerReviewSubAssignment.create!(parent_assignment:, context: course)
-      expect { service.send(:validate_peer_review_sub_assignment_exists) }.not_to raise_error
-    end
-
-    it "raises an error when peer review sub assignment does not exist" do
-      expect { service.send(:validate_peer_review_sub_assignment_exists) }.to raise_error(
-        PeerReview::PeerReviewSubAssignmentNotExistError,
-        "Peer review sub assignment does not exist"
-      )
-    end
-
-    it "raises an error when peer review sub assignment is nil" do
-      allow(parent_assignment).to receive(:peer_review_sub_assignment).and_return(nil)
-      expect { service.send(:validate_peer_review_sub_assignment_exists) }.to raise_error(
-        PeerReview::PeerReviewSubAssignmentNotExistError,
-        "Peer review sub assignment does not exist"
-      )
     end
   end
 
@@ -227,6 +125,7 @@ RSpec.describe PeerReview::PeerReviewCommonService do
         automatic_peer_reviews
         intra_group_peer_reviews
         workflow_state
+        group_category_id
       ]
 
       expect(inherited.keys).to match_array(expected_keys)
@@ -347,17 +246,18 @@ RSpec.describe PeerReview::PeerReviewCommonService do
   describe "#attributes_to_inherit_from_parent" do
     it "returns the expected array of attribute names" do
       expected_attributes = %w[
+        anonymous_peer_reviews
         assignment_group_id
+        automatic_peer_reviews
         context_id
         context_type
         description
+        group_category_id
+        intra_group_peer_reviews
         peer_review_count
         peer_reviews
-        peer_reviews_due_at
         peer_reviews_assigned
-        anonymous_peer_reviews
-        automatic_peer_reviews
-        intra_group_peer_reviews
+        peer_reviews_due_at
         workflow_state
       ]
 
@@ -630,18 +530,6 @@ RSpec.describe PeerReview::PeerReviewCommonService do
         .with(nil, update_grades: true, create_sub_assignment_submissions: false)
 
       expect { service.send(:compute_due_dates_and_create_submissions, nil) }.not_to raise_error
-    end
-  end
-
-  describe "translations" do
-    it "translates error messages" do
-      service.instance_variable_set(:@parent_assignment, nil)
-      expect(I18n).to receive(:t).with("Invalid parent assignment").and_return("Translated invalid parent assignment")
-
-      expect { service.send(:validate_parent_assignment) }.to raise_error(
-        PeerReview::PeerReviewInvalidParentAssignmentError,
-        "Translated invalid parent assignment"
-      )
     end
   end
 end

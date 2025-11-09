@@ -42,10 +42,16 @@ import GradeSummaryManager from '../react/GradeSummary/GradeSummaryManager'
 import SelectMenuGroup from '../react/SelectMenuGroup'
 import SubmissionCommentsTray from '../react/SubmissionCommentsTray'
 import ClearBadgeCountsButton from '../react/ClearBadgeCountsButton'
-import AssetProcessorCell from '../react/AssetProcessorCell'
+import {
+  LtiAssetProcessorCellWithData,
+  AssetProcessorHeaderForGrades,
+  ZLtiAssetProcessorCellWithDataProps,
+} from '../react/LtiAssetProcessorCellWithData'
+import {renderAPComponent} from '@canvas/lti-asset-processor/react/util/renderToElements'
 import {scoreToPercentage, scoreToScaledPoints} from '@canvas/grading/GradeCalculationHelper'
 import useStore from '../react/stores'
 import replaceTags from '@canvas/util/replaceTags'
+import {ZUseCourseAssignmentsAssetReportsParams} from '@canvas/lti-asset-processor/react/hooks/useCourseAssignmentsAssetReports'
 
 const I18n = createI18nScope('gradingGradeSummary')
 
@@ -723,7 +729,6 @@ let selectMenuRoot = null
 let gradeSummaryRoot = null
 let submissionCommentsTrayRoot = null
 let clearBadgeCountsRoot = null
-const assetProcessorCellRoots = new Map()
 
 function renderSelectMenuGroup() {
   const container = document.getElementById('GradeSummarySelectMenuGroup')
@@ -810,52 +815,33 @@ function renderClearBadgeCountsButton() {
 }
 
 function addAssetProcessorToLegacyTable() {
-  const tableHeader = document.getElementById('asset_processors_header')
-  if (!tableHeader) {
+  if (!ENV.FEATURES?.lti_asset_processor) {
     return
   }
 
-  const hasAssetReports = submission => Array.isArray(submission.asset_reports)
-  const submissionsWithReportsByAssignmentId = ENV.submissions
-    .filter(hasAssetReports)
-    .reduce((map, submission) => {
-      map[submission.assignment_id] = submission
-      return map
-    }, {})
-  const shouldShow = Object.keys(submissionsWithReportsByAssignmentId).length > 0
+  const fetchParams = {
+    courseId: ENV.course_id,
+    studentId: ENV.student_id,
+    gradingPeriodId: ENV.current_grading_period_id,
+  }
 
-  if (!shouldShow) {
+  if (!fetchParams.courseId || !fetchParams.studentId) {
     return
   }
 
-  tableHeader.textContent = I18n.t('Document Processors')
+  renderAPComponent(
+    '#asset_processors_header',
+    AssetProcessorHeaderForGrades,
+    ZUseCourseAssignmentsAssetReportsParams,
+    _element => fetchParams,
+  )
 
-  // Render AssetProcessorCell component in each asset processor cell
-  const assetProcessorCells = document.querySelectorAll('.asset_processors_cell')
-  assetProcessorCells.forEach(cell => {
-    const assignmentId = cell.dataset.assignmentId
-    const assignmentName = cell.dataset.assignmentName
-
-    if (assignmentId) {
-      const submission = submissionsWithReportsByAssignmentId[assignmentId]
-      if (!submission) {
-        return
-      }
-
-      if (!assetProcessorCellRoots.has(cell)) {
-        assetProcessorCellRoots.set(cell, ReactDOM.createRoot(cell))
-      }
-      const root = assetProcessorCellRoots.get(cell)
-      root.render(
-        <AssetProcessorCell
-          assetProcessors={submission.asset_processors}
-          assetReports={submission.asset_reports}
-          submissionType={submission.submission_type}
-          assignmentName={assignmentName}
-        />,
-      )
-    }
-  })
+  renderAPComponent(
+    '.asset_processors_cell',
+    LtiAssetProcessorCellWithData,
+    ZLtiAssetProcessorCellWithDataProps,
+    element => ({...fetchParams, assignmentId: element.dataset.assignmentId}),
+  )
 }
 
 function setup() {

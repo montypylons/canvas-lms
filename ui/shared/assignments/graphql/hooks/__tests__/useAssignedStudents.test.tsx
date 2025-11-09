@@ -20,7 +20,9 @@ import {renderHook} from '@testing-library/react-hooks'
 import {QueryClient} from '@tanstack/react-query'
 import React from 'react'
 import {MockedQueryClientProvider} from '@canvas/test-utils/query'
-import {useAssignedStudents, ASSIGNED_STUDENTS_QUERY, CourseStudent} from '../useAssignedStudents'
+import {useAssignedStudents} from '../useAssignedStudents'
+import {ASSIGNED_STUDENTS_QUERY} from '../../teacher/Queries'
+import {CourseStudent} from '../../teacher/AssignmentTeacherTypes'
 
 jest.mock('@canvas/graphql', () => ({
   executeQuery: jest.fn(),
@@ -30,17 +32,17 @@ const {executeQuery} = require('@canvas/graphql')
 const mockExecuteQuery = executeQuery as jest.MockedFunction<typeof executeQuery>
 
 const mockAssignedStudents: CourseStudent[] = [
-  {_id: '1', name: 'Squirtle'},
-  {_id: '2', name: 'Mudkip'},
-  {_id: '3', name: 'Dragonite'},
+  {_id: '1', name: 'Squirtle', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '2', name: 'Mudkip', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '3', name: 'Dragonite', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
 ]
 
 const mockCourseStudents: CourseStudent[] = [
-  {_id: '1', name: 'Squirtle'},
-  {_id: '2', name: 'Mudkip'},
-  {_id: '3', name: 'Dragonite'},
-  {_id: '4', name: 'Snorlax'},
-  {_id: '5', name: 'Psyduck'},
+  {_id: '1', name: 'Squirtle', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '2', name: 'Mudkip', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '3', name: 'Dragonite', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '4', name: 'Snorlax', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '5', name: 'Psyduck', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
 ]
 
 const createWrapper = () => {
@@ -73,7 +75,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', '', ''),
+        () => useAssignedStudents('assignment-123', ''),
         {
           wrapper: createWrapper(),
         },
@@ -100,7 +102,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', '', 'Squirtle'),
+        () => useAssignedStudents('assignment-123', 'Squirtle'),
         {
           wrapper: createWrapper(),
         },
@@ -117,7 +119,7 @@ describe('useAssignedStudents', () => {
       mockExecuteQuery.mockRejectedValueOnce(new Error('Assignment not found'))
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-error', '', ''),
+        () => useAssignedStudents('assignment-error', ''),
         {
           wrapper: createWrapper(),
         },
@@ -141,7 +143,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-empty', '', ''),
+        () => useAssignedStudents('assignment-empty', ''),
         {
           wrapper: createWrapper(),
         },
@@ -152,113 +154,12 @@ describe('useAssignedStudents', () => {
       expect(result.current.loading).toBe(false)
       expect(result.current.students).toEqual([])
       expect(result.current.error).toBe(null)
-    })
-
-    it('skips course students query when assignmentId is provided', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: mockAssignedStudents,
-          },
-        },
-      })
-
-      const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', 'course-456', ''),
-        {
-          wrapper: createWrapper(),
-        },
-      )
-
-      await waitForNextUpdate()
-
-      expect(result.current.students).toEqual(mockAssignedStudents)
-      expect(result.current.error).toBe(null)
-
-      // Verify that executeQuery was called only once (for assigned students)
-      expect(mockExecuteQuery).toHaveBeenCalledTimes(1)
-      expect(mockExecuteQuery).toHaveBeenCalledWith(ASSIGNED_STUDENTS_QUERY, {
-        assignmentId: 'assignment-123',
-        filter: {
-          searchTerm: undefined,
-        },
-      })
     })
   })
 
-  describe('with courseId only', () => {
-    it('returns course students successfully', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        course: {
-          usersConnection: {
-            nodes: mockCourseStudents,
-          },
-        },
-      })
-
-      const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('', 'course-456', ''),
-        {
-          wrapper: createWrapper(),
-        },
-      )
-
-      expect(result.current.loading).toBe(true)
-      expect(result.current.students).toEqual([])
-      expect(result.current.error).toBe(null)
-
-      await waitForNextUpdate()
-
-      expect(result.current.loading).toBe(false)
-      expect(result.current.students).toEqual(mockCourseStudents)
-      expect(result.current.error).toBe(null)
-    })
-
-    it('returns filtered course students with search term', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        course: {
-          usersConnection: {
-            nodes: [mockCourseStudents[1]],
-          },
-        },
-      })
-
-      const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('', 'course-456', 'Mudkip'),
-        {
-          wrapper: createWrapper(),
-        },
-      )
-
-      await waitForNextUpdate()
-
-      expect(result.current.loading).toBe(false)
-      expect(result.current.students).toEqual([mockCourseStudents[1]])
-      expect(result.current.error).toBe(null)
-    })
-
-    it('handles course students query error', async () => {
-      mockExecuteQuery.mockRejectedValueOnce(new Error('Course not found'))
-
-      const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('', 'course-error', ''),
-        {
-          wrapper: createWrapper(),
-        },
-      )
-
-      await waitForNextUpdate()
-
-      expect(result.current.loading).toBe(false)
-      expect(result.current.students).toEqual([])
-      expect(result.current.error).toBeTruthy()
-      expect(result.current.error?.message).toBe('Course not found')
-    })
-  })
-
-  describe('with neither assignmentId nor courseId', () => {
+  describe('with no assignmentId', () => {
     it('returns empty state without making any queries', () => {
-      const {result} = renderHook(() => useAssignedStudents('', '', ''), {
+      const {result} = renderHook(() => useAssignedStudents('', ''), {
         wrapper: createWrapper(),
       })
 
@@ -279,7 +180,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', '', ''),
+        () => useAssignedStudents('assignment-123', ''),
         {
           wrapper: createWrapper(),
         },
@@ -302,7 +203,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', '', 'Squirtle'),
+        () => useAssignedStudents('assignment-123', 'Squirtle'),
         {
           wrapper: createWrapper(),
         },
@@ -325,7 +226,7 @@ describe('useAssignedStudents', () => {
       })
 
       const {result, waitForNextUpdate} = renderHook(
-        () => useAssignedStudents('assignment-123', '', '   '),
+        () => useAssignedStudents('assignment-123', '   '),
         {
           wrapper: createWrapper(),
         },

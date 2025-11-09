@@ -22,6 +22,7 @@ tr:
     headings: 
       page: "Yetki Yok"
     title: "Yetki Yok"
+  4th_grade_fdfaa9a9: "4. Sınıf"
   558x270_png_jpg_gif_c3faa839: "558x270 png, jpg, gif"
   558x558_png_jpg_gif_1_8x_the_standard_tile_size_so_c56cc472: "558x558 png, jpg, gif  (1.8x standart desen boyutu, bu sayede istenildiği gibi büyültülüp küçültülebilir)"
   AssignmentGroupCreateDialog: 
@@ -202,6 +203,7 @@ tr:
   a_front_page_is_required_fd57b80: "Bir Ön sayfa gerekiyor"
   a_full_size_logo_that_appears_in_the_right_sidebar_18873685: "Canvas yönetim panelinin sağdaki kenar çubuğunda görünen tam ölçülü logo. İdeal boyutlar 360 x 140 pikseldir. Kabul edilen dosya formatları: svg, png, jepg, gif"
   a_great_discussion_6526a6d9: "Harika bir tartışma"
+  a_group_name_is_required_307c5aac: "Bir grup adı gerekli."
   a_handy_key_value_dump_of_a_host_of_interesting_en_d0518dfe: "Raporlayan kullanıcı için ilgi çekici ortam bilgisi barındırmada kullanışlı bir anahtar/değer yığını "
   a_json_url_is_required_please_supply_one_ed03101c: "Bir json url gereklidir, lütfen bir tane girin."
   a_locked_item_named_name_already_exists_in_this_lo_ab03ee39: "\"%{name}\" adına bir öğe zaten bu konumda mevcut. Lütfen teni bir ad giriniz."
@@ -1056,6 +1058,10 @@ tr:
             start: 
               parameters: 
                 header: "Başlangıç:"
+    edp_student_activity_csv_parameters: 
+      custom_reports: 
+        edp: 
+          all_terms: "Tüm Dönemler"
     embry_riddle_activity_report_csv_parameters: 
       account_reports: 
         embry_riddle: 
@@ -2236,6 +2242,7 @@ tr:
   all_dates_fields_must_be_present_and_formatted_cor_3a0fe925: "Tüm tarih alanları olmalı ve doğru biçimlendirilmeli"
   all_day_fb42c4fc: "Tüm Gün"
   all_finished_time_to_publish_your_course_click_the_b6f07217: "Her şey tamam mı? Dersinizi yayınlama zamanı! Yayınlamak için aşağıdaki butona tıklayın! Dersi yayınladığınızda kullanıcılar derse katılmaya başlayacaklar."
+  all_grades_for_students_in_this_course_will_no_lon_a32bf5d4: "Bu dersteki tüm öğrenci notları artık görülemeyecek. Dersi tekrar çarpraz listeleyerek notları geri getirebilirsiniz fakat bu öğrencilerin notları orijinal dersten getirilecek."
   all_grades_posted_616a85ab: "Tüm notlar yayınlandı"
   all_grades_posted_d5b8cb68: "Tüm notlar yayınlandı"
   all_grading_period_sets_must_have_a_title_799538f: "Tüm notlandırma peryodlarının başlığı olmalı"
@@ -2472,6 +2479,7 @@ tr:
   announcements_tutorial_tray_994287d6: "Duyurular Yönerge Yan Menüsü"
   announcements_unlocked_successfully_1432da9d: "Duyuruların kilidi başarılı bir şekilde kaldırıldı"
   announcements_view_1019d00d: "Duyurular -göster"
+  anonymity_1cfb09ca: "İsmin Bilinmemezliği"
   anonymize_all_annotations_made_by_instructors_on_s_4f2b70a5: "Eğitmenler tarafından bu ödevdeki tüm gönderilerde yapılan tüm ek notları SpeedGrader'da isimsiz yap"
   anonymize_all_instructor_comments_and_annotations__713924c9: "DocViewer'daki tüm eğitmen yorumlarını ve ek açıklamalarını anonimleştirir."
   anonymous_e1b8ad27: Anonim
@@ -2593,6 +2601,7 @@ tr:
   are_you_sure_you_want_to_cancel_changes_you_made_m_c5210496: "İptal etmek istediğinize emin misiniz? Yaptığınız değişiklikler kaydedilmeyebilir."
   are_you_sure_you_want_to_cancel_your_appointment_w_dbbd27eb: "%{name} ile olan randevunuzu iptal etmek istediğinizden emin misiniz?"
   are_you_sure_you_want_to_copy_to_the_final_mark_th_28a7e7b3: "Final puanını kopyalamak istediğinize emin misiniz? Var olan puanın üzerine yazılacak."
+  are_you_sure_you_want_to_de_cross_list_this_sectio_fae8a399: "Bu bölümü çarpraz listeden kaldırmak istediğinize emin misiniz?"
   are_you_sure_you_want_to_deactivate_this_user_they_3fdaab79: "Bu kullanıcıyı etkisiz kılmak istediğinize emin misiniz? Bu kullanıcılar etkisiz durumdayken derse katılamayacaklar."
   are_you_sure_you_want_to_delete_these_count_items_148e98ba: 
     one: "%{name} öğesini silmek istediğinizden emin misiniz?"
@@ -2826,6 +2835,12 @@ tr:
       other: "%{count} öğrenci"
   assignment_path_selected_e80191d1: "Ödev Süreci Seçildi"
   assignment_preview_3833e819: "%{assignment} önizleme"
+  assignment_quiz_type: 
+    quiz_type: "Kısa Sınav Türü"
+    quiz_type_options: 
+      graded_quiz: "Notlandırılmış Kısa Sınav"
+      graded_survey: "Notlandırılmış Anket"
+      ungraded_survey: "Notlandırılmamış Anket"
   assignment_score_summary_f1dc9708: "Sınav Not Özeti"
   assignment_selection_6bff05c4: "Ödev Seçimi"
   assignment_title_82b4422e: "Ödev Başlığı:"
@@ -4071,6 +4086,8 @@ tr:
       slot_limit: "Bu slotu sınırla"
       users: kulanıcılar.
     edit_assignment: 
+      ? " group"
+      : "Grup:"
       calendar: "Takvim:"
       due: "Bitiş:"
       group: "Grup:"
@@ -4175,11 +4192,17 @@ tr:
         goBackToInclude: "Aşağıdakileri dahil etmek için geri dönmek ister misiniz:"
         notAllSectionsAssigned: "Bu öğeye tüm bölümler atanmayacak."
     name_is_required: "İsim zorunludur!"
+    next: Sonraki
+    next_month: "Sonraki Hafta"
+    next_week: "Gelecek Hafta"
     no_dates_error: "En az bir gün ve saat belirtmelisiniz"
     no_groups: "Hiç grup bulunamadı"
     no_users: "Hiç kullanıcı bulunamadı"
     ok: Tamam
     open_appointment_on_this_day: "Bugün için açık bir randevu var."
+    previous: Önceki
+    previous_month: "Önceki Hafta"
+    previous_week: "Önceki Hafta"
     prompts: 
       delete_assignment: "Bu ödevi silmek isteğinize emin misiniz?"
       delete_event: "Bu olayı silmek istediğinize emin misiniz?"
@@ -5029,6 +5052,7 @@ tr:
     errors: 
       cannot_shift_and_remove: "Aynı anda shift_dates ve remove_dates belirlenemez"
       import_error: "İçeri Aktarma Hatası:"
+    file_copy_error: "\"%{name}\" dosyası kopyalanamıyor"
     missing_content_links_message: "Şu referanslar çözülemedi:"
     missing_content_links_title: "Alınan içerikte eksik bağlantılar bulundu"
     unexpected_error: "Beklenmeyen bir hata oluştur, lütfen destek birimi ile iletişime geçin."
@@ -6241,6 +6265,7 @@ tr:
   course_sis_7ae8f649: "ders öbs"
   course_sis_df8b379: "Ders Öbs"
   course_sis_id_bbed1a60: "ders sis id"
+  course_sis_id_c026d0f3: "Ders ÖBS Numarası"
   course_sis_id_cd834b3c: "Ders ÖBS ID:"
   course_sis_id_sis_id_or_canvas_id_4d323f5c: "Ders ÖBS ID (ÖBS_ID:####) YA DA Canvas ID: (###)"
   course_start_date_daae16ae: "Ders Başlangıç Tarihi"
@@ -6249,6 +6274,7 @@ tr:
   course_statistics: 
     unknown: bilinmeyen
   course_storage_391e1bd: "Ders Kotası"
+  course_summary_99c39cea: "Ders Özeti"
   course_syllabus_5de1b0af: "Ders Programı"
   course_users: 
     greater_than_three: "Lütfen üç veya daha fazla karakter içeren bir arama terimi girin"
@@ -6657,6 +6683,7 @@ tr:
         grade_publishing: "Not Yayınlama"
         integrations: Entegrasyonlar
         navigation: Gezinme
+        quiz_settings: "Kısa Sınav Ayarları"
         sections: Bölümler
         tools: Uygulamalar
       titles: 
@@ -7198,6 +7225,9 @@ tr:
   day_9d999bec: Gün
   day_s_7cc1231f: Gün(ler)
   days_late_a3a721b0: "Geç kalınan Günler"
+  de_cross_list_this_section_6f7b5984: "Bu Bölümü Çarpraz Listeden Kaldır"
+  de_cross_list_this_section_774a827c: "Bu Bölümü Çarpraz Listeden Kaldır"
+  de_cross_listing_section_c2ee371: "Çarpraz Listeden Kaldırma Bölümü..."
   deactivate_this_key_3e79a2b5: "Bu anahtarı etkisiz kıl"
   deactivate_user_86c09036: "Kullanıcıyı etkisiz kıl"
   debugging_f98fcd74: "Hata  Ayıklaması"
@@ -8125,6 +8155,7 @@ tr:
     roles: 
       designer: Tasarımcı
       designer_with_indefinite_article: Tasarımcı
+      instructors: Eğitmenler
       observer: Gözlemci
       observer_with_indefinite_article: Gözlemci
       student: Öğrenci
@@ -8827,6 +8858,7 @@ tr:
         folder_locked: "Bu dosyanın içinde olduğu \"%{folder}\" klasör kilitli."
     no_preview: 
       file_previews: 
+        download: İndir
         download_file: "*filename*'i indir"
         no_preview_available: "Bu dosya için ön izleme bulunmamaktadır."
   file_rename_form: 
@@ -10653,6 +10685,7 @@ tr:
   j_5226008a: j
   japan_81_d1832e9d: "japonya (+81)"
   javascript_file_fc27c32b: "Javascript dosyası"
+  job_handler_9d3d1007: "Görev İşleyici"
   jobs: 
     columns: 
       attempt: "giriş hakkı"
@@ -13540,6 +13573,7 @@ tr:
   next_page_d2a39853: "Sonraki Sayfa"
   next_steps_ce0f0d0c: "Sonraki Adımlar"
   next_student_79955068: "Sonraki Öğrenci"
+  next_week_9df347b3: "Gelecek Hafta"
   nickname_1e6da3ad: "Takma İsim"
   nickname_7df95b09: "Takma İsim:"
   no_74e9b590: hayır
@@ -13547,6 +13581,7 @@ tr:
   no_announcements_280df147: "Duyuru Yok"
   no_assignment_name_adbb215b: "Ödev Adı Yok"
   no_assignment_selected_65d9e422: "Seçili Ödev Yok"
+  no_assignments_found_2097cfc1: "Ödev bulunamadı"
   no_broken_links_found_38d951e3: "Bozuk Bağlantı Bulunamadı"
   no_content_5dbc9acf: "İçerik Yok"
   no_content_has_been_added_f36bab43: "* Hiçbir içerik eklenmedi"
@@ -14302,6 +14337,8 @@ tr:
   page_name_is_required_d8c2736e: "Sayfa Adı zounludur"
   page_not_found_2b0d05f5: "Sayfa bulunamadı"
   page_pagenum_20dbfeb8: "Sayfa %{pageNum}"
+  page_title: 
+    edit_ai_experience: "%{title}'yi düzenle"
   page_title_106304bb: "Sayfa başlığı"
   page_title_d1a22bbf: "Sayfa Başlığı"
   page_views: 
@@ -15011,6 +15048,7 @@ tr:
   previous_student_899a6732: "Önceki Öğrenci"
   previous_time_cc96b361: "Önceki (%{time})"
   previous_timestamp_19343a58: "Önceki (%{timestamp})"
+  previous_week_dddf1ef2: "Önceki Hafta"
   print_d0e3d53f: Yazdır
   priority_dd4381ee: Öncelik
   privacy_290109ea: Gizlilik
@@ -17077,18 +17115,21 @@ tr:
   remove_dates_5a5a8df2: "Tarihleri sil"
   remove_edf2b8a7: (Kaldır)
   remove_f47dc62a: Kaldır
+  remove_filename_1b74ef2a: "%{fileName}'ı kaldır"
   remove_filter_68de01d4: "Filtreyi Kaldır"
   remove_from_course_6fb47aee: "Dersten Sil"
   remove_image_341340b3: "Görseli sil"
   remove_media_comment_f4afdb4b: "Medya yorumunu sil"
   remove_name_as_leader_3e03780a: "%{name}'i liderlikten kaldır"
   remove_name_from_group_487cce74: "Gruptan %{name}'i kaldır"
+  remove_never_drop_rule_b9d08c64: "Asla bırakma kuralını kaldır"
   remove_null_values_from_live_event_payloads_3c826f: "Etkinlik verilerinden boş değerleri kaldır"
   remove_row_c198da5a: "Satırı sil"
   remove_row_f9d59cba: "Satırı Sil"
   remove_these_dates_48453a81: "Bu Tarihleri Sil"
   remove_this_item_from_the_module_4b2ceab7: "Bu öğeyi modülden çıkar"
   remove_this_rubric_from_my_list_c7d80704: "Değerlendirme listesini listemden sil"
+  remove_unsaved_never_drop_rule_bde18827: "Kaydedilmemiş asla bırakma kuralını kaldır"
   remove_user_from_section_5556f465: "Kullanıcıyı Bölümden Sil"
   rename_45608f54: "Yeniden adlandır"
   rename_this_section_73065edd: "Bu Bölümü Yeniden Adlandır"
@@ -17159,6 +17200,7 @@ tr:
   resume_survey_58dce775: "Ankete Devam Et"
   retrieve_timeout: "ayarlar alınamıyor, sunucu cevabı zaman aşımına uğradı"
   retry_ebd5f8ba: Tekrar
+  revision_history_abfd1cfd: "Güncelleme Geçmişi"
   rich_content_editor_2708ef21: "Zengin İçerik Editörü"
   role: 
     duplicate_role: "Bu isimle bir rol zaten var"
@@ -17268,6 +17310,8 @@ tr:
   role_successfully_updated_4317e6a4: "Rol başarılı bir şekilde güncellendi"
   roles: 
     based_on_type: "%{base_type} tabanlı"
+    designer: Tasarımcı
+    designers: Tasarımcılar
     edit_role: 
       role_name_label: "Rol İsmi"
     new_role: 
@@ -17276,6 +17320,8 @@ tr:
       role_type: "Baz Türü:"
       save: Kaydet
       saving: Kaydediliyor...
+    observer: Gözlemci
+    observers: Gözlemciler
     permission_button: 
       rolebutton: 
         disable: "Devre Dışı"
@@ -17292,6 +17338,12 @@ tr:
       account_roles: "Hesap Rolleri"
       course_roles: "Ders Rolleri"
       page_header_title: "Hesap İzinleri"
+    student: Öğrenci
+    students: Öğrenciler
+    ta: "Asistan Öğretmen"
+    tas: "Asistan Öğretmenler"
+    teacher: Öğretmen
+    teachers: Öğretmenler
   rootFoldersFinder: 
     course_files: "Ders dosyaları"
     group_files: "Grup dosyaları"
@@ -17596,6 +17648,7 @@ tr:
   section_sis_94511bcd: "bölüm öbs"
   section_sis_id_6f989834: "bölüm öbs id"
   section_specific_topics_must_have_sections_11868960: "Bölüme özel konularda bölüm olmak zorunda"
+  section_successfully_de_cross_listed_df3b64e: "Bölüm çarpraz listeden başarılı bir şekilde kaldırıldı!"
   sections: 
     section_created: "Bölüm başarıyla oluşturuldu!"
     section_creation_failed: "Bölüm oluşturma başarısız"
@@ -17654,6 +17707,7 @@ tr:
         crosslist_this_section: "Bu Bölümün Çarpraz Listesini Oluştur"
         current_enrollments: "Varolan Kayıtlar"
         decrosslist_section: "Bu Bölümü Çarpraz Listeden Kaldır"
+  sections_are_an_additional_way_to_organize_users_t_57551e0: "Bölümler kullanıcıları bütünleştirmenin ilave bir yoludur. Aynı ders içerisinde çoklu öğretim sınıflarına izin verilir, bu sayede tüm ders içerikleri tek bir yerde bulunur. Kullanıcıyı farklı bölüme taşımak veya bölüm kayıdı eklemek/silme işlemlerini yapabilirsiniz. Kullanıcılar en az bir bölümde olmalıdırlar."
   see_rubric_results_62a6447d: "Değerlendirme listesi sonuçlarına bak"
   see_some_lti_tools_that_work_great_with_canvas_53e92091: "Canvas ile sorunsuz çalışan bazı Harici Araçlar"
   see_this_assignment_in_speedgrader_14b8abaf: "Bu ödevi hızlı notlandırmada gör"
@@ -17692,6 +17746,7 @@ tr:
   select_itemname_f70db487: "%{itemName} i Seçin"
   select_navigation_links_68e1e924: "Gezinme Bağlantılarını Seçin"
   select_one_8e0af564: "Birini Seçiniz"
+  select_profile_picture_172176b6: "Profil Resmi Seçiniz"
   select_question_bank_508e5c08: "Soru bankası seçiniz"
   select_specific_content_5382e7ea: "Belirli bir içerik seçin"
   select_sub_account_6704196a: "Alt Hesap Seçin"
@@ -18539,6 +18594,7 @@ tr:
   show_concluded_enrollments_6a05544c: "Sonlandırılmış Ders Kayıtlarını Göster"
   show_correct_answers_at_30c37e01: "Doğru Cevapları Şu zamanda Göster"
   show_courses_from_8a087f63: "Dönem Derslerini Göster"
+  show_d6f24222: göster
   show_deleted_replies_a2e0a36f: "Silinmiş yanıtları göster"
   show_inactive_enrollments_8f4c4824: "Etkin Olmayan Ders Kayıtlarını Göster"
   show_less_f778dab5: "Daha Az Göster"
@@ -18856,6 +18912,7 @@ tr:
   student_sis_d9f0cd39: "öğrenci öbs"
   student_sis_id: "Öğrenci SIS ID"
   student_sis_id_abe6b292: "öğrenci öbs id"
+  student_sis_id_ae374b2c: "Öğrenci SIS ID"
   student_submissions_910da1b3: "Öğrenci Gönderimleri"
   student_summary: 
     student_summary_table_ascending: "Öğrenci Özet Tablosu %{sortText} e göre artan sıralı"
@@ -20545,6 +20602,8 @@ tr:
         anyone: Herkes
         only_teachers: "Sadece öğretmenler"
         teachers_and_students: "Öğretmenler ve öğrenciler"
+      create_page_title: "Yeni Sayfa"
+      edit_page_title: "%{title}'yi düzenle"
       editing_roles: 
         anyone: Herkes
         can_edit_page: "bu sayfayı düzenle"

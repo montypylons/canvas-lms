@@ -37,7 +37,10 @@ const I18n = createI18nScope('block_content_editor')
 const TextToImageRatioLabel = ({
   mainLabel,
   secondaryLabel,
-}: {mainLabel: string; secondaryLabel: string}) => {
+}: {
+  mainLabel: string
+  secondaryLabel: string
+}) => {
   return (
     <Flex direction="column">
       <FlexItem>
@@ -90,6 +93,7 @@ export const ImageTextBlockSettings = () => {
     caption,
     altTextAsCaption,
     decorativeImage,
+    attachmentId,
   } = useNode(node => ({
     ...defaultProps,
     ...node.data.props,
@@ -132,6 +136,7 @@ export const ImageTextBlockSettings = () => {
       props.url = imageData.url
       props.altText = imageData.altText
       props.fileName = imageData.fileName
+      props.attachmentId = imageData.attachmentId
     })
   }
 
@@ -164,8 +169,6 @@ export const ImageTextBlockSettings = () => {
       <SettingsIncludeTitle checked={includeBlockTitle} onChange={handleIncludeBlockTitleChange} />
       <SettingsSectionToggle
         title={I18n.t('Color settings')}
-        collapsedLabel={I18n.t('Expand color settings')}
-        expandedLabel={I18n.t('Collapse color settings')}
         defaultExpanded={true}
         includeSeparator={true}
       >
@@ -191,11 +194,9 @@ export const ImageTextBlockSettings = () => {
         </View>
       </SettingsSectionToggle>
       <SettingsSectionToggle
-        title={I18n.t('Image settings')}
-        collapsedLabel={I18n.t('Expand image settings')}
-        expandedLabel={I18n.t('Collapse image settings')}
+        title={I18n.t('Layout settings')}
         defaultExpanded={true}
-        includeSeparator={false}
+        includeSeparator={true}
       >
         <View as="div" margin="0 0 medium 0">
           <RadioInputGroup
@@ -209,7 +210,7 @@ export const ImageTextBlockSettings = () => {
             ))}
           </RadioInputGroup>
         </View>
-        <View as="div" margin="0 0 medium 0">
+        <View as="div">
           <RadioInputGroup
             name="image-text-text-to-image-ratio"
             description={I18n.t('Text to image ratio')}
@@ -221,6 +222,12 @@ export const ImageTextBlockSettings = () => {
             ))}
           </RadioInputGroup>
         </View>
+      </SettingsSectionToggle>
+      <SettingsSectionToggle
+        title={I18n.t('Image settings')}
+        defaultExpanded={true}
+        includeSeparator={false}
+      >
         <View as="div" margin="0 0 medium 0">
           <SettingsUploadImage
             onImageChange={handleImageDataChange}
@@ -235,6 +242,8 @@ export const ImageTextBlockSettings = () => {
             disabled={!url}
             altTextAsCaption={altTextAsCaption}
             decorativeImage={decorativeImage}
+            attachmentId={attachmentId}
+            fileName={fileName}
             onCaptionChange={handleCaptionChange}
             onAltTextChange={handleAltTextChange}
             onAltTextAsCaptionChange={handleAltTextAsCaptionChange}

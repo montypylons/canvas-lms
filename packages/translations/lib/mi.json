@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "Maamaa whakaahua"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Whakawātea kōnae kua tīpakohia"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Whakawātea kōnae kua tīpakohia: { filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Pāwhiri ara neke rānei pāwhiri mo te html editor."
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "Karapu (Hutu)"
+    },
+    "collab_575ac7bc": {
+        "message": "Mahi tahi"
     },
     "collaborations_5c56c15f": {
         "message": "Ngātahi"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "Latvian"
     },
+    "learn_ad3b3505": {
+        "message": "Ako"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "Ako ano i ngā hono tata"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "Ngā Kaiwhakamahi"
     },
+    "options_3ab0ea65": {
+        "message": "Kōwhiringa"
+    },
     "or_9b70ccaa": {
         "message": "Rānei"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "Tēnā koa whakauru he ingoa kōnae"
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "Whakaurua koa he URL ataata whaimana mai i te papaaho tautoko."
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "Tīpakohia koa tētahi kōnae he momo tautoko"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "Whakapono Tohu"
     },
+    "remove_f47dc62a": {
+        "message": "Neke"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "Tango { filename }"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Tango pane kāhua"
     },
     "remove_link_d1f2f4d0": {
         "message": "Tango Hononga"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Tango Studio Media"
     },
     "replace_all_d3d68b3": {
         "message": "Whakakapi Katoa"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "Ahakoa tō ataata te taitara tika i roto i te tirotiro, i hapa te whakahou i roto i te pātengi raraunga."
     },
+    "thumbnail_e0de666f": {
+        "message": "Karakōnui"
+    },
     "timebar_a4d18443": {
         "message": "Tapareti"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "Kaitākaro Ataata mō { title }"
     },
+    "video_url_889d3263": {
+        "message": "URL Ataata"
+    },
     "vietnamese_e7a76583": {
         "message": "Vietnamese"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "Kei te whakamahia pea tō paetukutuku kāmera."
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "YouTube whakauru URL"
     },
     "zeta_5ef24f0e": {
         "message": "Zeta"

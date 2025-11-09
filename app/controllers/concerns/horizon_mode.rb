@@ -60,6 +60,7 @@ module HorizonMode
 
   def should_add_horizon_params?
     return false unless @context
+    return false if entering_student_view? || in_student_view?
 
     if @context.is_a?(Account)
       @context.horizon_account?
@@ -72,12 +73,33 @@ module HorizonMode
 
   def add_horizon_params_to_url(url)
     uri = URI(url)
-    query = Rack::Utils.parse_query(uri.query).merge(horizon_params.stringify_keys)
+    query = Rack::Utils.parse_query(uri.query).merge(CanvasCareer::Constants::QueryParams::ACADEMIC_CONTENT_ONLY_CAREER_THEME.stringify_keys)
     uri.query = query.to_query
     uri.to_s
   end
 
   def horizon_params
     { content_only: "true", instui_theme: "career", force_classic: "true" }.symbolize_keys
+  end
+
+  def entering_student_view?
+    (controller_name == "courses" && action_name == "student_view") ||
+      (request.path.include?("/student_view") && request.method == "POST")
+  end
+
+  def in_student_view?
+    @current_user&.fake_student?
+  end
+
+  def remove_horizon_params(url)
+    return url unless url&.include?("instui_theme=career") && url.include?("force_classic=true")
+
+    uri = URI.parse(url)
+    query_params = Rack::Utils.parse_query(uri.query || "")
+    query_params.delete("instui_theme")
+    query_params.delete("force_classic")
+    query_params.delete("content_only")
+    uri.query = query_params.empty? ? nil : query_params.to_query
+    uri.to_s
   end
 end

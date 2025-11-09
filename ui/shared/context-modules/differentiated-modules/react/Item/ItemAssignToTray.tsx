@@ -43,7 +43,13 @@ import getLiveRegion from '@canvas/instui-bindings/react/liveRegion'
 import {lockLabels} from '@canvas/blueprint-courses/react/labels'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import type {DateDetails, DateLockTypes, exportedOverride, ItemAssignToCardSpec} from './types'
+import type {
+  DateDetails,
+  DateDetailsOverride,
+  DateLockTypes,
+  exportedOverride,
+  ItemAssignToCardSpec,
+} from './types'
 import {
   type ItemAssignToCardCustomValidationArgs,
   type ItemAssignToCardRef,
@@ -232,7 +238,9 @@ export default function ItemAssignToTray({
   const [hasModuleOverrides, setHasModuleOverrides] = useState(false)
   const [hasDifferentiationTagOverrides, setHasDifferentiationTagOverrides] = useState(false)
   const [moduleAssignees, setModuleAssignees] = useState<string[]>([])
+  const [unassignedOverrides, setUnassignedOverrides] = useState<DateDetailsOverride[]>([])
   const [groupCategoryId, setGroupCategoryId] = useState<string | null>(defaultGroupCategoryId)
+  const [showGroupCategoryDeletedAlert, setShowGroupCategoryDeletedAlert] = useState(false)
   const [overridesFetched, setOverridesFetched] = useState(
     defaultCards !== undefined && defaultCards.length > 0,
   )
@@ -330,6 +338,10 @@ export default function ItemAssignToTray({
     checkMasteryPaths: masteryPathsAllowed,
     defaultValues: [],
     onError: handleDismiss,
+    onGroupCategoryNotFound: () => {
+      setGroupCategoryId(null)
+      setShowGroupCategoryDeletedAlert(true)
+    },
   })
 
   const focusErrors = useCallback(() => {
@@ -385,6 +397,7 @@ export default function ItemAssignToTray({
       filteredCards,
       hasModuleOverrides,
       deletedModuleAssignees,
+      unassignedOverrides,
     )
     if (itemContentId !== undefined) {
       updateModuleItem({
@@ -574,6 +587,8 @@ export default function ItemAssignToTray({
               onAddCard={onAddCard}
               onAssigneesChange={onAssigneesChange}
               onDatesChange={onDatesChange}
+              showGroupCategoryDeletedAlert={showGroupCategoryDeletedAlert}
+              setShowGroupCategoryDeletedAlert={setShowGroupCategoryDeletedAlert}
               onCardRemove={onCardRemove}
               setAssignToCards={setAssignToCards}
               blueprintDateLocks={blueprintDateLocks}
@@ -585,6 +600,7 @@ export default function ItemAssignToTray({
               setHasDifferentiationTagOverrides={setHasDifferentiationTagOverrides}
               cardsRefs={cardsRefs}
               setModuleAssignees={setModuleAssignees}
+              setUnassignedOverrides={setUnassignedOverrides}
               defaultGroupCategoryId={defaultGroupCategoryId}
               allOptions={allOptions}
               isLoadingAssignees={isLoadingAssignees}
@@ -653,6 +669,7 @@ export default function ItemAssignToTray({
           setHasDifferentiationTagOverrides={setHasDifferentiationTagOverrides}
           cardsRefs={cardsRefs}
           setModuleAssignees={setModuleAssignees}
+          setUnassignedOverrides={setUnassignedOverrides}
           defaultGroupCategoryId={defaultGroupCategoryId}
           allOptions={allOptions}
           isLoadingAssignees={isLoadingAssignees}
@@ -667,6 +684,8 @@ export default function ItemAssignToTray({
           disabledOptionIdsRef={disabledOptionIdsRef}
           isTray={isTray}
           setOverrides={setOverrides}
+          showGroupCategoryDeletedAlert={showGroupCategoryDeletedAlert}
+          setShowGroupCategoryDeletedAlert={setShowGroupCategoryDeletedAlert}
         />
       )}
     </View>

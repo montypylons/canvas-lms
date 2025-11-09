@@ -21,19 +21,20 @@ import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
+import {List} from '@instructure/ui-list'
 import TemplateWidget from '../TemplateWidget/TemplateWidget'
 import CourseWorkFilters, {type DateFilterOption} from '../../shared/CourseWorkFilters'
 import type {BaseWidgetProps, CourseOption} from '../../../types'
 import {useSharedCourses} from '../../../hooks/useSharedCourses'
-import {useCourseWork} from '../../../hooks/useCourseWork'
+import {useCourseWorkPaginated} from '../../../hooks/useCourseWork'
 import {useCourseWorkStatistics} from '../../../hooks/useCourseWorkStatistics'
-import {usePagination} from '../../../hooks/usePagination'
 import StatisticsCardsGrid from '../../shared/StatisticsCardsGrid'
 import {
   convertDateFilterToParams,
   convertDateFilterToStatisticsRange,
 } from '../../../utils/dateUtils'
 import {CourseWorkItem as CourseWorkItemComponent} from '../../shared/CourseWorkItem'
+import {DEFAULT_PAGE_SIZE} from '../../../constants/pagination'
 
 const I18n = createI18nScope('widget_dashboard')
 
@@ -56,27 +57,22 @@ const CourseWorkCombinedWidget: React.FC<BaseWidgetProps> = ({
   const dateParams = convertDateFilterToParams(selectedDateFilter)
   const statisticsDateRange = convertDateFilterToStatisticsRange(selectedDateFilter)
 
+  const pageSize = DEFAULT_PAGE_SIZE.COURSE_WORK_COMBINED
+
+  // Fetch course work with pagination
   const {
-    data,
+    currentPage: currentPageData,
+    currentPageIndex,
+    totalPages,
+    goToPage,
+    resetPagination,
+    refetch,
     isLoading: courseWorkLoading,
     error: courseWorkError,
-    refetch,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isFetchingPreviousPage,
-  } = useCourseWork({
-    pageSize: 6,
+  } = useCourseWorkPaginated({
+    pageSize,
     courseFilter,
     ...dateParams,
-  })
-
-  const {currentPageIndex, paginationProps, resetPagination} = usePagination({
-    hasNextPage: !!hasNextPage,
-    totalPagesLoaded: data?.pages?.length || 0,
-    fetchNextPage,
-    isFetchingNextPage,
-    isFetchingPreviousPage,
   })
 
   const {
@@ -89,36 +85,32 @@ const CourseWorkCombinedWidget: React.FC<BaseWidgetProps> = ({
     courseId: courseFilter,
   })
 
-  const currentPage = data?.pages?.[currentPageIndex]
-  const filteredItems = currentPage?.items || []
+  const filteredItems = currentPageData?.items || []
 
   const isLoading = externalIsLoading || courseWorkLoading || statisticsLoading
-  const error = externalError || courseWorkError?.message || statisticsError?.message || null
+  const error =
+    externalError ||
+    (courseWorkError ? courseWorkError.message : null) ||
+    statisticsError?.message ||
+    null
   const handleRetry = onRetry || (() => refetch())
-
-  const handleResetPagination = useCallback(() => {
-    resetPagination()
-    refetch()
-  }, [resetPagination, refetch])
 
   const handleCourseChange = useCallback(
     (_event: React.SyntheticEvent, data: {value?: string | number; id?: string}) => {
       if (data.value && typeof data.value === 'string') {
         setSelectedCourse(data.value)
-        handleResetPagination()
       }
     },
-    [handleResetPagination],
+    [],
   )
 
   const handleDateFilterChange = useCallback(
     (_event: React.SyntheticEvent, data: {value?: string | number; id?: string}) => {
       if (data.value && typeof data.value === 'string') {
         setSelectedDateFilter(data.value as DateFilterOption)
-        handleResetPagination()
       }
     },
-    [handleResetPagination],
+    [],
   )
 
   return (
@@ -128,20 +120,25 @@ const CourseWorkCombinedWidget: React.FC<BaseWidgetProps> = ({
       error={error ? I18n.t('Failed to load course work. Please try again.') : null}
       onRetry={handleRetry}
       pagination={{
-        ...paginationProps,
+        currentPage: currentPageIndex + 1,
+        totalPages,
+        onPageChange: goToPage,
+        isLoading: courseWorkLoading,
         ariaLabel: I18n.t('Course work pagination'),
       }}
-      headerActions={
-        <CourseWorkFilters
-          selectedCourse={selectedCourse}
-          selectedDateFilter={selectedDateFilter}
-          onCourseChange={handleCourseChange}
-          onDateFilterChange={handleDateFilterChange}
-          userCourses={userCourses}
-        />
-      }
     >
       <Flex direction="column" gap="small" height="100%">
+        {/* Filters Section */}
+        <Flex.Item overflowX="visible" overflowY="visible">
+          <CourseWorkFilters
+            selectedCourse={selectedCourse}
+            selectedDateFilter={selectedDateFilter}
+            onCourseChange={handleCourseChange}
+            onDateFilterChange={handleDateFilterChange}
+            userCourses={userCourses}
+          />
+        </Flex.Item>
+
         {/* Statistics Cards Section */}
         <Flex.Item overflowY="hidden">
           <StatisticsCardsGrid summary={summary} margin="small 0" />
@@ -151,7 +148,7 @@ const CourseWorkCombinedWidget: React.FC<BaseWidgetProps> = ({
         <Flex.Item shouldGrow>
           {filteredItems.length === 0 ? (
             <Flex justifyItems="center" padding="large">
-              <Text color="secondary">
+              <Text color="secondary" data-testid="no-course-work-message">
                 {selectedCourse === 'all'
                   ? I18n.t('No upcoming course work')
                   : I18n.t('No upcoming course work for selected course')}
@@ -160,9 +157,13 @@ const CourseWorkCombinedWidget: React.FC<BaseWidgetProps> = ({
           ) : (
             <View height="100%">
               <Flex direction="column">
-                {filteredItems.map(item => (
-                  <CourseWorkItemComponent key={item.id} item={item} />
-                ))}
+                <List isUnstyled margin="0">
+                  {filteredItems.map(item => (
+                    <List.Item key={item.id} margin="0">
+                      <CourseWorkItemComponent item={item} />
+                    </List.Item>
+                  ))}
+                </List>
               </Flex>
             </View>
           )}

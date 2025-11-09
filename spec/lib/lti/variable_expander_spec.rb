@@ -101,8 +101,7 @@ module Lti
       course.save!
       user.save!
 
-      # Enable differentiation tags feature flag and setting on course account
-      course.account.enable_feature!(:assign_to_differentiation_tags)
+      # Enable differentiation tags setting on course account
       course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
       course.account.save!
 
@@ -153,8 +152,7 @@ module Lti
 
     before do
       root_account.disable_feature!(:refactor_custom_variables)
-      # Enable the differentiation tags feature
-      course.account.enable_feature!(:assign_to_differentiation_tags)
+      # Enable the differentiation tags
       root_account.settings = { allow_assign_to_differentiation_tags: { value: true } }
       course.account.save!
     end
@@ -1264,6 +1262,39 @@ module Lti
         end
       end
 
+      context "com.instructure.Course.rce_studio_embed_improvements expansion" do
+        let(:subst_name) { "$com.instructure.Course.rce_studio_embed_improvements" }
+
+        it "returns 'true' when the feature flag is enabled for the course" do
+          course.save!
+          course.enable_feature!(:rce_studio_embed_improvements)
+
+          expander = VariableExpander.new(
+            root_account,
+            course,
+            controller,
+            current_user: user,
+            tool:
+          )
+
+          expect(expand!(subst_name, expander:)).to eq "true"
+        end
+
+        it "returns 'false' when the feature flag is not enabled for the course" do
+          course.save!
+
+          expander = VariableExpander.new(
+            root_account,
+            course,
+            controller,
+            current_user: user,
+            tool:
+          )
+
+          expect(expand!(subst_name, expander:)).to eq "false"
+        end
+      end
+
       context "modules resources expansion" do
         let(:available_canvas_resources) { [{ "course_id" => course.id, "type" => "module" }] }
 
@@ -2163,6 +2194,50 @@ module Lti
           expect(expand!("$Canvas.assignment.id")).to eq 2015
         end
 
+        describe "$Activity.id.history" do
+          let(:subst) { "$Activity.id.history" }
+          let(:course) { course_model }
+          let(:assignment) { assignment_model(context: course) }
+          let(:variable_expander) { VariableExpander.new(root_account, course, controller, current_user: user, tool:, assignment:) }
+
+          def expand_history
+            expand!(subst, expander: variable_expander)
+          end
+
+          before do
+            Rails.cache.delete(Lti::ImportHistory.import_history_cache_key(assignment.lti_context_id))
+          end
+
+          it "returns empty string when recursive_import_history returns []" do
+            expect(Lti::ImportHistory).to receive(:recursive_import_history).with(assignment.lti_context_id, { limit: 1001 }).and_return([])
+            expect(expand_history).to eq ""
+          end
+
+          it "joins multiple ids with commas in returned order" do
+            expect(Lti::ImportHistory).to receive(:recursive_import_history).with(assignment.lti_context_id, { limit: 1001 }).and_return(%w[id2 id1]).once
+            expect(expand_history).to eq "id2,id1"
+          end
+
+          it "adds redacted if history is too long" do
+            ids = Array.new(1001) { |i| "id#{i + 1}" }
+            expect(Lti::ImportHistory).to receive(:recursive_import_history).with(assignment.lti_context_id, { limit: 1001 }).and_return(ids).once
+            expect(expand_history).to eq ids.first(1000).push("truncated").join(",")
+          end
+
+          it "caches computed value so subsequent calls do not invoke recursive_import_history more than once" do
+            call_count = 0
+            allow(Lti::ImportHistory).to receive(:recursive_import_history) do
+              call_count += 1
+              ["A", "B"]
+            end
+            first = expand_history
+            second = expand_history
+            expect(first).to eq "A,B"
+            expect(second).to eq "A,B"
+            expect(call_count).to be <= 2
+          end
+        end
+
         it "returns empty string for CourseGroup.id when assignment is not group assignment" do
           allow(assignment).to receive(:group_category).and_return(nil)
           expect(expand!("$CourseGroup.id")).to eq ""
@@ -2182,6 +2257,25 @@ module Lti
         it "has substitution for $Canvas.assignment.title" do
           assignment.title = "Buy as many ducks as you can"
           expect(expand!("$Canvas.assignment.title")).to eq "Buy as many ducks as you can"
+        end
+
+        it "has substitution for $Canvas.assignment.new_quizzes_type" do
+          expect(expand!("$Canvas.assignment.new_quizzes_type")).to eq "graded_quiz"
+        end
+
+        it "has substitution for $Canvas.assignment.new_quizzes_type with custom type" do
+          allow(assignment).to receive(:new_quizzes_type).and_return("ungraded_survey")
+          expect(expand!("$Canvas.assignment.new_quizzes_type")).to eq "ungraded_survey"
+        end
+
+        it "has substitution for $Canvas.assignment.anonymous_participants" do
+          allow(assignment).to receive(:anonymous_participants?).and_return(false)
+          expect(expand!("$Canvas.assignment.anonymous_participants")).to be false
+        end
+
+        it "has substitution for $Canvas.assignment.anonymous_participants when true" do
+          allow(assignment).to receive(:anonymous_participants?).and_return(true)
+          expect(expand!("$Canvas.assignment.anonymous_participants")).to be true
         end
 
         describe "$Canvas.assignment.pointsPossible" do
@@ -2911,8 +3005,7 @@ module Lti
           course.save!
           user.save!
 
-          # Enable differentiation tags feature flag and setting on course account
-          course.account.enable_feature!(:assign_to_differentiation_tags)
+          # Enable differentiation tags setting on course account
           course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
           course.account.save!
 
@@ -2966,8 +3059,7 @@ module Lti
           course.save!
           user.save!
 
-          # Enable differentiation tags feature flag and setting
-          course.account.enable_feature!(:assign_to_differentiation_tags)
+          # Enable differentiation tags setting
           course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
           course.account.save!
 
@@ -3089,8 +3181,7 @@ module Lti
           course.save!
           user.save!
 
-          # Enable differentiation tags feature flag and setting
-          course.account.enable_feature!(:assign_to_differentiation_tags)
+          # Enable differentiation tags setting
           course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
           course.account.save!
 
@@ -3144,8 +3235,7 @@ module Lti
           course.save!
           user.save!
 
-          # Enable differentiation tags feature flag and setting
-          course.account.enable_feature!(:assign_to_differentiation_tags)
+          # Enable differentiation tags setting
           course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
           course.account.save!
 

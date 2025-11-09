@@ -715,6 +715,10 @@ export default class Calendar {
       return
     }
     event.start = date
+    if (date.hours() === 0 && date.minutes() === 0 && this.currentView === 'month') {
+      event.start.hours(23)
+      event.start.minutes(59)
+    }
     event.addClass('event_pending')
     const revertFunc = () => console.log('could not save date on undated event')
 
@@ -1086,6 +1090,11 @@ export default class Calendar {
     }) // use replaceState if view_name wasn't set before
 
     this.currentView = view
+
+    document.dispatchEvent(
+      new CustomEvent('calendar:header:select_view', {detail: {viewName: view}}),
+    )
+
     if (view !== 'scheduler') {
       return userSettings.set('calendar_view', view)
     }

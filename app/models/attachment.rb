@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "crocodoc"
-
 # See the uploads controller and views for examples on how to use this model.
 class Attachment < ActiveRecord::Base
   class UniqueRenameFailure < StandardError; end
@@ -125,7 +123,7 @@ class Attachment < ActiveRecord::Base
   has_many :thumbnails, foreign_key: "parent_id", inverse_of: :attachment
   has_many :children, foreign_key: :root_attachment_id, class_name: "Attachment", inverse_of: :root_attachment
   has_many :attachment_upload_statuses
-  has_one :crocodoc_document
+  has_one :last_attachment_upload_status, -> { order(created_at: :desc) }, class_name: "AttachmentUploadStatus"
   has_one :canvadoc
   belongs_to :usage_rights
   has_many :canvadocs_annotation_contexts, inverse_of: :attachment
@@ -969,6 +967,7 @@ class Attachment < ActiveRecord::Base
     else
       # s3 can't handle unknown options :sigh:
       options.delete(:internal)
+      options.delete(:no_jti)
       should_download = options.delete(:download)
       disposition = should_download ? "attachment" : "inline"
       options[:response_content_disposition] = "#{disposition}; #{disposition_filename}"
@@ -976,12 +975,12 @@ class Attachment < ActiveRecord::Base
     end
   end
 
-  def public_inline_url(ttl = url_ttl)
-    public_url(expires_in: ttl, download: false)
+  def public_inline_url(expires_in: url_ttl, no_jti: false)
+    public_url(expires_in:, no_jti:, download: false)
   end
 
-  def public_download_url(ttl = url_ttl)
-    public_url(expires_in: ttl, download: true)
+  def public_download_url(expires_in: url_ttl, no_jti: false)
+    public_url(expires_in:, no_jti:, download: true)
   end
 
   def url_ttl
@@ -998,13 +997,11 @@ class Attachment < ActiveRecord::Base
     Attachment.local_storage?
   end
 
-  HTML_MAX_PROXY_SIZE = 128.kilobytes
-  FLASH_MAX_PROXY_SIZE = 1.megabyte
-  CSS_MAX_PROXY_SIZE = 64.kilobytes
+  HTML_MAX_PROXY_SIZE = 510.kilobytes
+  CSS_MAX_PROXY_SIZE = 255.kilobytes
 
   def can_be_proxied?
     (mime_class == "html" && size < HTML_MAX_PROXY_SIZE) ||
-      (mime_class == "flash" && size < FLASH_MAX_PROXY_SIZE) ||
       (content_type == "text/css" && size < CSS_MAX_PROXY_SIZE)
   end
 
@@ -1807,7 +1804,6 @@ class Attachment < ActiveRecord::Base
         Attachments::Storage.store_for_attachment(att, File.open(file_removed_path))
       end
       attachment_ids = att.children_and_self.select(:id)
-      CrocodocDocument.where(attachment_id: attachment_ids).delete_all
       canvadoc_scope = Canvadoc.where(attachment_id: attachment_ids)
       CanvadocsSubmission.where(canvadoc_id: canvadoc_scope.select(:id)).delete_all
       AnonymousOrModerationEvent.where(canvadoc_id: canvadoc_scope.select(:id)).delete_all
@@ -2024,7 +2020,14 @@ class Attachment < ActiveRecord::Base
       destination.workflow_state = "processed"
     else
       destination.avoid_linking_to_root_attachment = true if split_root_attachment
-      Attachments::Storage.store_for_attachment(destination, open)
+      # If open returns nil (e.g., underlying S3 object missing and marked broken),
+      # skip attempting to store, and mark destination broken as well to prevent
+      # downstream service errors like InstFS::BadRequestError ("No file uploaded").
+      if (source_file = open)
+        Attachments::Storage.store_for_attachment(destination, source_file)
+      elsif destination.md5.nil?
+        Attachment.where(id: destination).update_all(file_state: "broken")
+      end
     end
   end
 
@@ -2061,11 +2064,6 @@ class Attachment < ActiveRecord::Base
     self.file_state == "available"
   end
 
-  def crocodocable?
-    Canvas::Crocodoc.enabled? &&
-      CrocodocDocument::MIME_TYPES.include?(content_type)
-  end
-
   def canvadocable?
     for_assignment_or_submissions = folder&.for_submissions? || folder&.for_student_annotation_documents?
     canvadocable_mime_types = for_assignment_or_submissions ? Canvadoc.submission_mime_types : Canvadoc.mime_types
@@ -2098,19 +2096,9 @@ class Attachment < ActiveRecord::Base
   MAX_CANVADOCS_ATTEMPTS = 5
 
   def submit_to_canvadocs(attempt = 1, **opts)
-    # ... or crocodoc (this will go away soon)
     return if Attachment.skip_3rd_party_submits?
 
-    submit_to_crocodoc_instead = opts[:wants_annotation] &&
-                                 crocodocable? &&
-                                 !Canvadocs.annotations_supported?
-    if submit_to_crocodoc_instead
-      # get crocodoc off the canvadocs strand
-      # (maybe :wants_annotation was a dumb idea)
-      delay(n_strand: "crocodoc",
-            priority: Delayed::LOW_PRIORITY)
-        .submit_to_crocodoc(attempt)
-    elsif canvadocable?
+    if canvadocable?
       doc = canvadoc || create_canvadoc
       doc.upload({
                    annotatable: opts[:wants_annotation],
@@ -2134,26 +2122,6 @@ class Attachment < ActiveRecord::Base
       delay(n_strand: "canvadocs_retries",
             run_at: (5 * attempt).minutes.from_now,
             priority: Delayed::LOW_PRIORITY).submit_to_canvadocs(attempt + 1, **opts)
-    end
-  end
-
-  MAX_CROCODOC_ATTEMPTS = 5
-
-  def submit_to_crocodoc(attempt = 1)
-    if crocodocable? && !Attachment.skip_3rd_party_submits?
-      crocodoc = crocodoc_document || create_crocodoc_document
-      crocodoc.upload
-      update_attribute(:workflow_state, "processing")
-    end
-  rescue => e
-    update_attribute(:workflow_state, "errored")
-    Canvas::Errors.capture(e, type: :canvadocs, attachment_id: id)
-
-    if attempt <= MAX_CROCODOC_ATTEMPTS
-      delay(n_strand: "crocodoc_retries",
-            run_at: (5 * attempt).minutes.from_now,
-            priority: Delayed::LOW_PRIORITY)
-        .submit_to_crocodoc(attempt + 1)
     end
   end
 
@@ -2270,7 +2238,7 @@ class Attachment < ActiveRecord::Base
   end
 
   def self.serialization_methods
-    %i[mime_class currently_locked crocodoc_available?]
+    %i[mime_class currently_locked]
   end
   cattr_accessor :skip_thumbnails
 
@@ -2435,10 +2403,6 @@ class Attachment < ActiveRecord::Base
     failed_retryable
   end
 
-  def crocodoc_available?
-    crocodoc_document.try(:available?)
-  end
-
   def canvadoc_available?
     canvadoc.try(:available?)
   end
@@ -2447,12 +2411,6 @@ class Attachment < ActiveRecord::Base
     return unless canvadocable?
 
     "/api/v1/canvadoc_session?#{preview_params(user, "canvadoc", opts, access_token:)}"
-  end
-
-  def crocodoc_url(user, opts = {})
-    return unless crocodoc_available?
-
-    "/api/v1/crocodoc_session?#{preview_params(user, "crocodoc", opts.merge(enable_annotations: true))}"
   end
 
   def previewable_media?
@@ -2474,7 +2432,15 @@ class Attachment < ActiveRecord::Base
   private :preview_params
 
   def can_unpublish?
-    false
+    # Only allow if file is in a simple "published" state with no special restrictions
+    return false if locked?
+
+    has_complex_state = file_state != "available" ||
+                        lock_at.present? ||
+                        unlock_at.present? ||
+                        (visibility_level.present? && visibility_level != "inherit")
+
+    !has_complex_state
   end
 
   def self.copy_attachments_to_submissions_folder(assignment_context, attachments)
@@ -2562,6 +2528,36 @@ class Attachment < ActiveRecord::Base
         end
       end
     end
+  end
+
+  def ingest_to_pine
+    return unless context.is_a?(Course) && context.root_account.present?
+
+    url = public_download_url
+
+    metadata = {
+      course_id: context.id.to_s,
+      filename:,
+      content_type:
+    }
+
+    # PineClient requires a user object with uuid and global_id, but we don't have a user in this context
+    # and the action is more of a system-initiated action than a user-initiated action
+    null_user = Struct.new(:uuid, :global_id, keyword_init: true).new(uuid: nil, global_id: nil)
+
+    PineClient.ingest_url(
+      url:,
+      metadata:,
+      source: "canvas",
+      source_id: id.to_s,
+      source_type: "attachment",
+      feature_slug: "horizon-content-ingestion",
+      root_account_uuid: context.root_account.uuid,
+      current_user: null_user
+    )
+  rescue => e
+    Rails.logger.error("Failed to ingest attachment #{id} for context #{context.class.name}:#{context.id}: #{e.message}")
+    raise
   end
 
   def self.migrate_attachments(from_context, to_context, scope = nil)

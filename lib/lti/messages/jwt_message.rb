@@ -84,8 +84,7 @@ module Lti::Messages
     end
 
     def to_cached_hash
-      without_validation_fields = Account.site_admin.feature_enabled?(:remove_unwanted_lti_validation_claims)
-      post_payload = generate_post_payload_message.to_h(without_validation_fields:)
+      post_payload = generate_post_payload_message.to_h
       assoc_tool_data = {
         shared_secret: associated_1_1_tool&.shared_secret,
         consumer_key: associated_1_1_tool&.consumer_key
@@ -335,6 +334,11 @@ module Lti::Messages
       return unless include_extension?(key.to_sym)
 
       @message.extensions["#{JwtMessage::EXTENSION_PREFIX}#{key}"] = value
+    end
+
+    def add_activity_claim!(assignment)
+      @message.activity.id = assignment.lti_context_id
+      @message.activity.title = assignment.title
     end
   end
 end

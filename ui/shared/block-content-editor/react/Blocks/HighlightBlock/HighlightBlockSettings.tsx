@@ -44,8 +44,6 @@ export const HighlightBlockSettings = () => {
     <View as="div">
       <SettingsSectionToggle
         title={I18n.t('Color settings')}
-        collapsedLabel={I18n.t('Expand color settings')}
-        expandedLabel={I18n.t('Collapse color settings')}
         defaultExpanded={true}
         includeSeparator={true}
       >
@@ -64,8 +62,6 @@ export const HighlightBlockSettings = () => {
       </SettingsSectionToggle>
       <SettingsSectionToggle
         title={I18n.t('Highlight settings')}
-        collapsedLabel={I18n.t('Expand highlight settings')}
-        expandedLabel={I18n.t('Collapse highlight settings')}
         defaultExpanded={true}
         includeSeparator={false}
       >
@@ -76,7 +72,9 @@ export const HighlightBlockSettings = () => {
             checked={displayIcon === 'warning'}
             onChange={e =>
               setProp((props: HighlightBlockProps) => {
-                props.displayIcon = e.target.checked ? 'warning' : null
+                // IMPORTANT: Never use null values in setProp - CraftJS filters them out during serialization
+                // Use sentinel values like 'none', 'disabled', 'off' instead of null
+                props.displayIcon = e.target.checked ? 'warning' : 'none'
               })
             }
           />

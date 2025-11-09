@@ -116,7 +116,7 @@ export interface EnvCommon {
   }
   confetti_branding_enabled: boolean
   url_to_what_gets_loaded_inside_the_tinymce_editor_css: string
-  url_for_high_contrast_tinymce_editor_css: string
+  url_for_high_contrast_tinymce_editor_css: string[]
   csp?: string
   current_user_id: string | null
   current_user_global_id: string
@@ -147,6 +147,9 @@ export interface EnvCommon {
   help_link_icon: string
   use_high_contrast: boolean
   use_dyslexic_font?: boolean
+  widget_dashboard?: boolean
+  widget_dashboard_overridable?: boolean
+  widget_dashboard_enabled?: boolean
   auto_show_cc: boolean
   disable_celebrations: boolean
   disable_keyboard_shortcuts: boolean
@@ -154,6 +157,7 @@ export interface EnvCommon {
   LTI_TOOL_SCOPES?: {[key: string]: string[]}
   DEEP_LINKING_POST_MESSAGE_ORIGIN: string
   CAREER_THEME_URL?: string
+  CAREER_DARK_THEME_URL?: string
   comment_library_suggestions_enabled: boolean
   INCOMPLETE_REGISTRATION: boolean
   SETTINGS: Record<Setting, boolean>
@@ -257,17 +261,6 @@ export interface EnvCommon {
     >
   >
 
-  /**
-   * Referenced by ui/shared/rails-flash-notifications/jquery/index.ts but doesn't appear to be defined anywhere.
-   * Perhaps some rails magic?
-   */
-  notices?: Array<{
-    content?: {
-      timeout?: number
-    }
-    type?: string
-    classes?: string
-  }>
   breadcrumbs?: {name: string; url: string}[]
   enhanced_rubrics_enabled?: boolean
   enhanced_rubrics_copy_to?: boolean
@@ -293,6 +286,7 @@ export type SiteAdminFeatureId =
   | 'courses_popout_sisid'
   | 'create_external_apps_side_tray_overrides'
   | 'dashboard_graphql_integration'
+  | 'developer_key_user_agent_alert'
   | 'enhanced_course_creation_account_fetching'
   | 'explicit_latex_typesetting'
   | 'files_a11y_rewrite'
@@ -304,20 +298,24 @@ export type SiteAdminFeatureId =
   | 'media_links_use_attachment_id'
   | 'multiselect_gradebook_filters'
   | 'new_quizzes_navigation_updates'
+  | 'new_quizzes_surveys'
   | 'permanent_page_links'
   | 'render_both_to_do_lists'
   | 'scheduled_feedback_releases'
   | 'speedgrader_studio_media_capture'
   | 'student_access_token_management'
+  | 'top_navigation_placement_a11y_fixes'
   | 'validate_call_to_action'
   | 'youtube_migration'
   | 'youtube_overlay'
+  | 'ux_list_concluded_courses_in_bp'
 /**
  * From ApplicationController#JS_ENV_ROOT_ACCOUNT_FEATURES
  */
 export type RootAccountFeatureId =
   | 'account_level_mastery_scales'
-  | 'ams_service'
+  | 'ams_root_account_integration'
+  | 'api_rate_limits'
   | 'buttons_and_icons_root_account'
   | 'course_pace_allow_bulk_pace_assign'
   | 'course_pace_download_document'
@@ -336,11 +334,12 @@ export type RootAccountFeatureId =
   | 'lti_apps_page_ai_translation'
   | 'lti_asset_processor'
   | 'lti_asset_processor_discussions'
-  | 'lti_deep_linking_module_index_menu_modal'
   | 'lti_link_to_apps_from_developer_keys'
   | 'lti_registrations_next'
   | 'lti_registrations_page'
   | 'lti_registrations_usage_data'
+  | 'lti_registrations_usage_data_dev'
+  | 'lti_registrations_usage_data_low_usage'
   | 'lti_registrations_usage_tab'
   | 'mobile_offline_mode'
   | 'modules_requirements_allow_percentage'
@@ -348,6 +347,7 @@ export type RootAccountFeatureId =
   | 'open_tools_in_new_tab'
   | 'product_tours'
   | 'rce_lite_enabled_speedgrader_comments'
+  | 'rce_studio_embed_improvements'
   | 'rce_transform_loaded_content'
   | 'restrict_student_access'
   | 'rubric_criterion_range'
@@ -371,7 +371,11 @@ export type BrandAccountFeatureId =
  * Feature id exported in ApplicationController that aren't mentioned in
  * JS_ENV_SITE_ADMIN_FEATURES or JS_ENV_ROOT_ACCOUNT_FEATURES or JS_ENV_BRAND_ACCOUNT_FEATURES
  */
-export type OtherFeatureId = 'canvas_k6_theme' | 'new_math_equation_handling'
+export type OtherFeatureId =
+  | 'ams_course_integration'
+  | 'canvas_k6_theme'
+  | 'new_math_equation_handling'
+  | 'lti_asset_processor_course'
 
 /**
  * From ApplicationHelper#set_tutorial_js_env

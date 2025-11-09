@@ -861,6 +861,10 @@ hy:
             start: 
               parameters: 
                 header: "Սկսված է՝"
+    edp_student_activity_csv_parameters: 
+      custom_reports: 
+        edp: 
+          all_terms: "Բոլոր ժամանակահատվածները"
     find_not_authorized: "Ձեզ թույլատրված չէ մուտք գործել դեպի %{type}"
     find_not_found: "Նշված նույնականացուցիչով %{type} հնարավոր չէր գտնել"
     grade_export_csv_description: 
@@ -1757,6 +1761,7 @@ hy:
   all_courses_a7dbb853: "Բոլոր դասընթացներ"
   all_dates_fields_must_be_present_and_formatted_cor_3a0fe925: "Ամսաթվերի բոլոր դաշտերը պետք է առկա լինեն և ճիշտ ձևով ֆորմատավորված"
   all_finished_time_to_publish_your_course_click_the_b6f07217: "Եթե բոլորը աշխատանքներն ավարտել եք, ապա կարող եք հրապարակել ձեր դասընթացը: Սեղմեք ներքևի կոճակը այն հրապարակելու համար: Հրապարակումը թույլ կտա օգտատերերին սկսել մասնակցությունը դասընթացին:"
+  all_grades_for_students_in_this_course_will_no_lon_a32bf5d4: "Այս դասընթացի ունկնդիրների բոլոր գնահատականները այլևս տեսանելի չեն լինի: Դուք կարող եք ավելի ուշ ստանալ գնահատականները, դասընթացը կրկին ընդգրկելով խաչաձև ցուցակում, մինչդեռ այդ ունկնդիրների գնահատականները կվերաբերեն սկզբնական դասընթացին: "
   all_grading_periods_77974940: "Գնահատման բոլոր ժամանակահատվածները"
   all_grading_periods_must_have_a_title_a1a38d87: "Բոլոր գնահատման ժամանակահատվածները պետք է անվանում ունենան"
   all_groups_cea25817: "Բոլոր խմբեր"
@@ -1874,6 +1879,7 @@ hy:
     podcast_title_course: "Դասընթացների հայտարարությունների ձայնային հոսք"
     podcast_title_group: "Խմբային հայտարարությունների ձայնային հոսք"
   announcements_a4b8ed4a: Հայտարարություններ
+  anonymity_1cfb09ca: Անանունություն
   anonymous_e1b8ad27: Անանուն
   anonymous_grading_ccb5045c: "Անանուն գնահատում"
   anonymous_grading_forces_student_names_to_be_hidde_8b46d7e7: "Անանուն գնահատումը անտեսանելի է դարձնում ունկնդիրների անունները «Արագ գնահատման համակարգ»-ում"
@@ -1955,6 +1961,7 @@ hy:
   archived_de543437: "Արխիվացվել է"
   are_you_sure_26795d3c: "Դուք համոզված՞ եք"
   are_you_sure_you_want_to_copy_to_the_final_mark_th_28a7e7b3: "Դուք իսկապե՞ս ցանկանում եք պատճենել վերջնական գնահատականը: Այն կարող է ջնջել գոյություն ունեցող գնահատականը:"
+  are_you_sure_you_want_to_de_cross_list_this_sectio_fae8a399: "Դուք իսկապե՞ս ցանկանում եք այս բաժինը ջնջել խաչաձև ցուցակից:"
   are_you_sure_you_want_to_delete_these_count_items_148e98ba: 
     one: "Դուք իսկապե՞ս ցանկանում եք ջնջել %{name}:"
     other: "Դուք իսկապե՞ս ցանկանում եք ջնջել այդ %{count} տարրերը:"
@@ -2120,6 +2127,12 @@ hy:
     student_count: 
       one: "%{count} ունկնդիր"
       other: "%{count}  ունկնդիր"
+  assignment_quiz_type: 
+    quiz_type: "Թեստի տեսակ"
+    quiz_type_options: 
+      graded_quiz: "Գնահատվող թեստ"
+      graded_survey: "Գնահատվող հարցում"
+      ungraded_survey: "Չգնահատված հարցում"
   assignment_selection_6bff05c4: "Հանձնարարության ընտրություն"
   assignment_title_8a707dd2: "հանձնարարության անվանում"
   assignment_url_37c849c6: "Հանձնարարության url հասցեն"
@@ -3196,6 +3209,8 @@ hy:
       slot_limit: "Սահմանափակել այս միջակայքը __ով"
       users: օգտատերեր
     edit_assignment: 
+      ? " group"
+      : Խումբ.
       calendar: Օրացույց
       due: Մինչև
       group: Խումբ.
@@ -3296,11 +3311,13 @@ hy:
         chooseDueDate: "Ցանկանո՞ւմ եք վերադառնալ և սահմանել կատարման վերջնաժամկետ:"
         goBackToInclude: "Կցանկանայի՞ք վերադառնալ ինչ-որ բան ներառելու համար"
         notAllSectionsAssigned: "Այս տարրը կնշանակվի ոչ բոլոր բաժինների համար "
+    next: Հաջորդը
     no_dates_error: "Դուք պետք է նշել առնվազն մեկ ամսաթիվ և ժամ"
     no_groups: "Խմբեր չեն գտնվել"
     no_users: "Օգտատերեր չեն գտնվել"
     ok: OK
     open_appointment_on_this_day: "Նշված օրվա համար բաց մնացած հանդիպում կա "
+    previous: Նախորդը
     prompts: 
       delete_assignment: "Դուք իսկապե՞ս ցանկանում եք ջնջել այս հանձնարարությունը:"
       delete_event: "Դուք իսկապե՞ս ցանկանում եք ջնջել այս միջոցառումը"
@@ -3934,6 +3951,7 @@ hy:
     errors: 
       cannot_shift_and_remove: "Հնարավոր չէ միաժամանակ որոշել shift_dates և remove_dates:"
       import_error: "Ներմուծման սխալ"
+    file_copy_error: "Հնարավոր չէ պատճենել \"%{name}\" ֆայլը"
     missing_content_links_message: "Հետևյալ հղումները հնարավոր չէ կատարել"
     missing_content_links_title: "Ներմուծված բովանդակության մեջ բացակայող հղումներ կան:"
     unexpected_error: "Անսպասելի սխալ է տեղի ունեցել, կապվեք օժանդակող ծառայության հետ:"
@@ -4984,6 +5002,7 @@ hy:
   course_setup_checklist_78dcff7e: "Դասընթացի տեղադրման ստուգիչ հարցեր"
   course_setup_wizard_is_showing_a7c087c1: "Ցույց է տրվում դասընթացի տեղադրման վիզարդը:"
   course_sis_id_bbed1a60: "դասընթացի sis id"
+  course_sis_id_c026d0f3: "Դասընթացի SIS ID"
   course_starts_at_3a01f9da: "Դասընթացն սկսվում է "
   course_statistics: 
     unknown: "անհայտ է "
@@ -5840,6 +5859,9 @@ hy:
       second: Վայրկյան
       year: Տարի
   day_s_7cc1231f: Օր(եր)
+  de_cross_list_this_section_6f7b5984: "Այս բաժինը ջնջել խաչաձև ցուցակից"
+  de_cross_list_this_section_774a827c: "Այս բաժինը ջնջել խաչաձև ցուցակից"
+  de_cross_listing_section_c2ee371: "Չեղարկել խաչաձև ցուցակների բաժինը... "
   deactivate_this_key_3e79a2b5: "Ապաակտիվացնել այս բանալին"
   decaying_average_8bf6a0dd: "Նվազող միջին միավոր"
   decline_7eeb5ff4: Մերժել
@@ -6575,6 +6597,7 @@ hy:
     roles: 
       designer: Դիզայներ
       designer_with_indefinite_article: Դիզայներ
+      instructors: Դասավանդողներ
       observer: Դիտորդ
       observer_with_indefinite_article: Դիտորդ
       student: Ունկնդիր
@@ -6941,6 +6964,7 @@ hy:
   everyone_else_6c6dc7b6: "Մնացած բոլորը"
   everyone_else_cc5f6888: "Մնացած յուրաքանչյուրը"
   example_84698b7d: Օրինակ
+  example_cb3509b8: Օրինակ՝
   example_final_score_355aff0f: "Վերջնական գնահատականի օրինակ"
   example_final_score_a92b30b9: "Վերջնական գնահատականի օրինակ]]"
   example_https_example_com_config_xml_be5f36ac: "Օրինակ՝  https://example.com/config.xml"
@@ -7196,6 +7220,7 @@ hy:
         folder_locked: "Այս ֆայլը պարունակող\"%{folder}\" թղթապանակը արգելափակված է:"
     no_preview: 
       file_previews: 
+        download: Ներբեռնել
         download_file: "Բեռնել *filename*"
         no_preview_available: "Այս ֆայլի նախնական դիտումը հասանելի չէ:"
   file_rename_form: 
@@ -8762,6 +8787,7 @@ hy:
   items_selected_have_different_usage_rights_52b325cc: "Ընտրված տարրերը օգտագործման տարբեր իրավունքներ ունեն:"
   j_5226008a: j
   javascript_24e6a9d3: JavaScript
+  job_handler_9d3d1007: "Հանձնարարության մշակող"
   jobs: 
     columns: 
       attempt: Փորձ
@@ -11418,6 +11444,7 @@ hy:
   no_active_user_with_that_id_was_found_b8fb5e14: "Այդպիսի  ID ունեցող ակտիվ օգտատեր չի գտնվել:"
   no_assignment_name_adbb215b: "Հանձնարարության անվանում չկա"
   no_assignment_selected_65d9e422: "Ոչ մի հանձնարարություն ընտրված չէ"
+  no_assignments_found_2097cfc1: "Հանձնարարություններ չեն գտնվել"
   no_content_5dbc9acf: "Բովանդակություն չկա"
   no_content_has_been_added_f36bab43: "* Բովանդակություն չի ավելացվել"
   no_conversations_selected_ebcd9226: "Խոսակցություններ չեն ընտրվել"
@@ -12063,6 +12090,8 @@ hy:
       create_failed: "Մեկնաբանության ստեղծումը չհաջողվեց"
   page_name_21defa75: "Էջի անվանում"
   page_not_found_2b0d05f5: "Էջը չի գտնվել"
+  page_title: 
+    edit_ai_experience: "Խմբագրել %{title}"
   page_title_106304bb: "Էջի վերնագիրը"
   page_title_d1a22bbf: "Էջի անվանում"
   page_views: 
@@ -14667,18 +14696,21 @@ hy:
   remove_contact_method_ca890ba3: "Ջնջել կապ հաստատելու միջոցը"
   remove_dates_5a5a8df2: "Հանել ամսաթվերը"
   remove_f47dc62a: Հանել
+  remove_filename_1b74ef2a: "Հանել  %{fileName}"
   remove_filter_68de01d4: "Հեռացնել ֆիլտրները"
   remove_from_course_6fb47aee: "Հանել դասընթացից"
   remove_icon_a4646413: "հանել պատկերը"
   remove_media_comment_f4afdb4b: "Հանել մուլտիմեդիա մեկնաբանությունը"
   remove_name_as_leader_3e03780a: " %{name} հանել առաջնորդությունից"
   remove_name_from_group_487cce74: " %{name} հանել խմբից"
+  remove_never_drop_rule_b9d08c64: "Հանել \"երբեք բաց չթողնել\" կանոնը"
   remove_recipient_name_a6b83cef: "Հեռացնել  %{name} ստացողին "
   remove_row_c198da5a: "Հանել տողը"
   remove_row_f9d59cba: "Հանել Տողը"
   remove_student_from_recipients_4b206e35: "Ջնջել %{student} -ին ստացողների ցանկից"
   remove_these_dates_48453a81: "Հեռացնել այս ամսաթվերը"
   remove_this_section_9a88ca43: "Ջնջել այս բաժինը"
+  remove_unsaved_never_drop_rule_bde18827: "Հանել չպահպանված՝ \"երբեք բաց չթողնել\" կանոնը"
   remove_user_from_section_5556f465: "Բաժնից ջնջել օգտատիրոջը "
   rename_45608f54: Վերանվանել
   rename_c_name_section_e0e92c97: "Վերանվանել %{c.name} բաժինը"
@@ -14739,6 +14771,7 @@ hy:
   retry_ebd5f8ba: "Փորձել կրկին"
   reviewer_b993ce28: "Կարծիք ներկայացնող"
   reviewers_successfully_added_bd4b629a: "Կարծիք ներկայացնողները հաջողությամբ ավելացվել են"
+  revision_history_abfd1cfd: "Վերանայման պատմություն"
   rich_content_editor_2708ef21: "Ֆորմատավորված տեքստի խմբագիր"
   right_sidebar_logo_5483dc0a: "Աջ մասի կողային վահանակ"
   role: 
@@ -14844,6 +14877,8 @@ hy:
   role_successfully_updated_4317e6a4: "Դերը հաջողությամբ թարմացվել է"
   roles: 
     based_on_type: "Հիմնված է %{base_type} վրա"
+    designer: Դիզայներ
+    designers: Դիզայներներ
     edit_role: 
       role_name_label: "Դերի անունը"
     new_role: 
@@ -14852,6 +14887,8 @@ hy:
       role_type: "Բազային տեսակ"
       save: Պահպանել
       saving: "Պահպանվում է..."
+    observer: Դիտորդ
+    observers: Դիտորդներ
     permission_button: 
       rolebutton: 
         disable: Անջատել
@@ -14869,6 +14906,12 @@ hy:
       account_roles: "Հաշվի դերերը"
       course_roles: "Դասընթացի դերեր"
       page_header_title: "Հաշվի թույլտվություններ"
+    student: Ունկնդիր
+    students: Ունկնդիրներ
+    ta: Ասիստենտ
+    tas: Ասիստենտներ
+    teacher: Դասավանդող
+    teachers: Դասավանդողներ
   rootFoldersFinder: 
     course_files: "Դասընթացի ֆայլեր"
     group_files: "Խմբի ֆայլեր"
@@ -15141,6 +15184,7 @@ hy:
   section_name_is_too_long_9cec2a30: "Բաժնի անվանումը չափազանց երկար է"
   section_sis_id_6f989834: "sis բաժնի id"
   section_starts_at_65eaed1: "Բաժինը սկսվում է "
+  section_successfully_de_cross_listed_df3b64e: "Բաժինը հաջողությամբ ջնջվել է խաչաձև ցուցակներից:"
   sections: 
     section_created: "Բաժինը հաջողությամբ ստեղծված է: "
     section_creation_failed: "Բաժինը ստեղծել չհաջողվեց"
@@ -15199,6 +15243,7 @@ hy:
         crosslist_this_section: "Այս բաժինը ընդգրկել խաչաձև ցուցակում"
         current_enrollments: "Ընթացիկ գրանցումներ"
         decrosslist_section: "Այս բաժինը ջնջել խաչաձև ցուցակից"
+  sections_are_an_additional_way_to_organize_users_t_57551e0: "Բաժինները օգտատերերի հետ աշխատանքը կազմակերպելու լրացուցիչ միջոց են: Դրանք կարող են Ձեզ թույլ տալ միևնույն դասընթացի շրջանակում մի քանի դաս վարել, այնպես որ դուք կարողանաք դասընթացի բովանդակությունը տեղադրել մի տեղում: Ներքևում Դուք կարող եք օգտատիրոջը տեղափոխել մեկ այլ բաժին կամ ավելացնել/հանել բաժնի գրանցումները: Օգտատերերը պետք է մշտապես ընդգրկված լինեն առնվազն մեկ բաժնում:  "
   see_some_lti_tools_that_work_great_with_canvas_16ef75a0: "*Որոշ LTI գործիքներ* որոնք գերազանց են աշխատում Canvas -ի հետ:"
   see_this_assignment_in_speedgrader_14b8abaf: "Տես այս հանձնարարությունը «Արագ գնահատման համակարգ»-ում"
   select_a_course_40bc3229: "Ընտրել դասընթացը"
@@ -15243,6 +15288,7 @@ hy:
   select_itemname_f70db487: "Ընտրել %{itemName}"
   select_navigation_links_68e1e924: "Ընտրել նավարկման հղումները"
   select_one_8e0af564: "Ընտրել մեկը"
+  select_profile_picture_172176b6: "Ընտրել պրոֆիլի պատկերը"
   select_question_bank_508e5c08: "Ընտրել հարցերի շտեմարանը"
   select_specific_content_5382e7ea: "Ընտրել որոշակի բովանդակություն"
   select_students_for_review_6e004a12: "Ընտրել ունկնդիրներ կարծիքներ ներկայացնելու համար"
@@ -16058,6 +16104,7 @@ hy:
   show_concluded_enrollments_6a05544c: "Ցույց տալ ավարտված գրանցումները"
   show_correct_answers_at_a5475aa3: "Ցույց տալ ճիշտ պատասխանները"
   show_current_grade_5bf4e0d9: "Ցույց տալ ընթացիկ գնահատականը"
+  show_d6f24222: "ցույց տալ"
   show_final_grade_a95e14dc: "Ցույց տալ վերջնական գնահատականը"
   show_less_f778dab5: "Ավելի քիչ ցուցադրել "
   show_links_to_unpublished_content_30c0450d: "Ցույց տալ չհրապարակված բովանդակության հղումները"
@@ -17892,6 +17939,8 @@ hy:
         anyone: "Ցանկացած անձ"
         only_teachers: "Միայն դասավանդողները"
         teachers_and_students: "Դասավանդողներ և ունկնդիրներ"
+      create_page_title: "Նոր էջ"
+      edit_page_title: "Խմբագրել %{title}"
       editing_roles: 
         anyone: "Ցանկացած անձ"
         can_edit_page: "կարող են խմբագրել այս էջը"

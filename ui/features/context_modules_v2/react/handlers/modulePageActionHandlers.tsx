@@ -158,10 +158,7 @@ export const transformRequirementsForTray = (
       id: req.id,
       name: moduleItem?.name || '',
       type: mappedType,
-      resource:
-        rawModuleItem?.content?.isNewQuiz || rawModuleItem?.content?.type == 'Quiz'
-          ? 'quiz'
-          : 'assignment',
+      resource: moduleItem?.resource || 'assignment',
       graded: rawModuleItem?.content?.graded,
       pointsPossible:
         moduleItem?.pointsPossible || String(rawModuleItem?.content?.pointsPossible || 0),
@@ -244,6 +241,7 @@ export const handleOpeningModuleUpdateTray = (
     requireSequentialProgress: currentModule?.requireSequentialProgress || false,
     publishFinalGrade: false,
     unlockAt: currentModule?.unlockAt,
+    published: currentModule?.published || false,
   }
 
   root.render(<DifferentiatedModulesTray {...(trayProps as any)} />)
@@ -254,13 +252,19 @@ export const handleOpeningEditItemModal = (
   moduleId: string,
   moduleItemId: string,
 ) => {
-  const queryData = queryClient.getQueryData<PaginatedNavigationResponse>([
-    MODULE_ITEMS,
-    moduleId,
-    null,
-  ])
-  if (!queryData) return
-  const moduleItem = queryData.moduleItems.find((item: any) => item._id === moduleItemId)
+  const queries = queryClient.getQueriesData<PaginatedNavigationResponse>({
+    queryKey: [MODULE_ITEMS, moduleId],
+  })
+
+  let moduleItem: ModuleItem | null = null
+  for (const [, data] of queries) {
+    if (!data) continue
+    const found = data.moduleItems?.find((i: any) => i._id === moduleItemId)
+    if (found) {
+      moduleItem = found
+      break
+    }
+  }
   if (!moduleItem) return
   const itemProps = {
     courseId,

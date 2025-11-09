@@ -1649,7 +1649,7 @@ describe ExternalToolsController do
       tool.save!
       lti_assignment_id = SecureRandom.uuid
       jwt = Canvas::Security.create_jwt({ lti_assignment_id: })
-      get :retrieve, params: { url: tool.url, account_id: account.id, secure_params: jwt }
+      get :retrieve, params: { url: tool.url, course_id: @course.id, secure_params: jwt }
       expect(assigns[:lti_launch].params["ext_lti_assignment_id"]).to eq lti_assignment_id
     end
 
@@ -1760,6 +1760,52 @@ describe ExternalToolsController do
         expect(assigns[:lti_launch].params["custom_canvas_assignment_title"]).to eq assignment.title
         expect(assigns[:lti_launch].params["ext_outcome_result_total_score_accepted"]).to eq "true"
         expect(assigns[:lti_launch].params["lis_outcome_service_url"]).to eq lti_grade_passback_api_url(tool)
+      end
+
+      it "uses deep linking when editing assignment to select new resource via retrieve endpoint" do
+        # This test verifies the fix for INTEROP-9964 / https://github.com/instructure/canvas-lms/issues/2553
+        # When launching with placement=assignment_selection and assignment in secure_params (not URL params),
+        # Canvas should send LtiDeepLinkingRequest for resource selection, not LtiResourceLinkRequest
+        # This happens when an instructor edits an existing assignment to select a NEW resource
+
+        # Create a tool with assignment_selection configured for deep linking
+        reg = lti_registration_with_tool(account: @course.account)
+        deep_linking_tool = reg.new_external_tool(@course)
+        deep_linking_tool.assignment_selection = {
+          message_type: "LtiDeepLinkingRequest",
+          url: "http://example.com/deep_link",
+          enabled: true
+        }
+        deep_linking_tool.save!
+
+        # Create an assignment that's already linked to the tool (simulates existing assignment)
+        existing_assignment = assignment_model(course: @course, title: "Existing Assignment")
+        existing_assignment.submission_types = "external_tool"
+        existing_assignment.external_tool_tag_attributes = { url: deep_linking_tool.url, content_id: deep_linking_tool.id }
+        existing_assignment.save!
+
+        # Pass assignment via secure_params (simulates editing assignment to select new resource)
+        jwt = Canvas::Security.create_jwt({ lti_assignment_id: existing_assignment.lti_context_id })
+
+        get :retrieve, params: {
+          course_id: @course.id,
+          url: deep_linking_tool.url,
+          placement: :assignment_selection,
+          secure_params: jwt
+        }
+
+        expect(response).to be_successful
+
+        # For LTI 1.3, decode the message hint to get the verifier, then fetch the cached launch
+        decoded_hint = JSON::JWT.decode(assigns[:lti_launch].params["lti_message_hint"], :skip_verification)
+        launch_data = JSON.parse(fetch_and_delete_launch(@course, decoded_hint["verifier"]))
+
+        # Verify it's a deep linking request, not a resource link request
+        # WITHOUT the fix, this would be LtiResourceLinkRequest with assignment-specific claims
+        post_payload = launch_data["post_payload"]
+        expect(post_payload["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiDeepLinkingRequest"
+        expect(post_payload["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]).to be_present
+        expect(post_payload["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]["accept_types"]).to eq ["ltiResourceLink"]
       end
     end
 
@@ -2168,7 +2214,7 @@ describe ExternalToolsController do
           reg = lti_registration_with_tool(account: @course.account)
           t = reg.new_external_tool(@course)
           t.editor_button = { message_type:, icon_url: "http://example.com/icon" }
-          t.custom_fields = { contents: "$com.instructure.Editor.contents", selection: "$com.instructure.Editor.selection" }
+          t.custom_fields = { contents: "$com.instructure.Editor.contents", selection: "$com.instructure.Editor.selection", assignment_history: "$Activity.id.history" }
           t.save!
           t
         end
@@ -2210,6 +2256,16 @@ describe ExternalToolsController do
           it_behaves_like "includes editor variables" do
             let(:selection_launch_param) { launch_params["post_payload"].dig("https://purl.imsglobal.org/spec/lti/claim/custom", "selection") }
             let(:contents_launch_param) { launch_params["post_payload"].dig("https://purl.imsglobal.org/spec/lti/claim/custom", "contents") }
+          end
+
+          it "handles secure_params with lti_assignment_id" do
+            assignment = assignment_model(course: @course, title: "Test Assignment")
+
+            jwt = Canvas::Security.create_jwt({ lti_assignment_id: assignment.lti_context_id })
+            post "resource_selection", params: { course_id: @course.id, external_tool_id: tool.id, secure_params: jwt, editor: true }
+
+            expect(response).to be_successful
+            expect(launch_params["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]["assignment_history"]).to eq ""
           end
 
           context "when the parent_frame_context param is sent" do
@@ -3088,6 +3144,77 @@ describe ExternalToolsController do
           expect(Time.zone.parse(tool_settings["custom_assignment_due_at"])).to be_within(5.seconds).of(assignment_override.due_at)
         end
       end
+
+      context "security checks for assignment access" do
+        context "when assignment is locked by dates" do
+          it "does not allow launch when assignment is locked" do
+            assignment.update!(due_at: 2.days.ago, unlock_at: 3.days.ago, lock_at: 1.day.ago)
+
+            get :generate_sessionless_launch, params: { course_id: course.id, launch_type: "assessment", assignment_id: assignment.id }
+
+            expect(response).to have_http_status(:unauthorized)
+          end
+
+          it "allows teachers to generate launch URL even when locked" do
+            assignment.update!(due_at: 2.days.ago, unlock_at: 3.days.ago, lock_at: 1.day.ago)
+            teacher = teacher_in_course(course:, active_all: true).user
+            user_session(teacher)
+
+            get :generate_sessionless_launch, params: { course_id: course.id, launch_type: "assessment", assignment_id: assignment.id }
+
+            expect(response).to be_successful
+          end
+        end
+
+        context "when assignment visibility is restricted" do
+          let(:section1) { course.course_sections.create!(name: "Section 1") }
+          let(:section2) { course.course_sections.create!(name: "Section 2") }
+          let(:student_in_section2) do
+            user = user_factory(active_all: true)
+            course.enroll_student(user, section: section2, enrollment_state: "active").user
+            user
+          end
+
+          before do
+            assignment.update!(only_visible_to_overrides: true)
+            # Create override only for section1
+            assignment.assignment_overrides.create!(
+              set_type: "CourseSection",
+              set_id: section1.id
+            )
+          end
+
+          it "does not allow launch when assignment is not visible to user's section" do
+            user_session(student_in_section2)
+
+            get :generate_sessionless_launch, params: { course_id: course.id, launch_type: "assessment", assignment_id: assignment.id }
+
+            expect(response).to have_http_status(:unauthorized)
+          end
+
+          it "allows launch when assignment is visible to user's section" do
+            student_in_section1 = user_factory(active_all: true)
+            course.enroll_student(student_in_section1, section: section1, enrollment_state: "active")
+            user_session(student_in_section1)
+
+            get :generate_sessionless_launch, params: { course_id: course.id, launch_type: "assessment", assignment_id: assignment.id }
+
+            expect(response).to be_successful
+          end
+        end
+
+        context "when assignment is excused" do
+          before do
+            assignment.grade_student(@user, excuse: true, grader: @teacher)
+          end
+
+          it "does not allow launch when assignment is excused for the user" do
+            get :generate_sessionless_launch, params: { course_id: course.id, launch_type: "assessment", assignment_id: assignment.id }
+
+            expect(response).to have_http_status(:unauthorized)
+          end
+        end
+      end
     end
 
     context "when url is provided in params" do
@@ -3507,9 +3634,11 @@ describe ExternalToolsController do
   end
 
   describe "#sessionless_launch" do
+    let(:tool_override_settings) { {} }
     let(:tool) do
       new_valid_tool(@course).tap do |t|
         t.course_navigation = { enabled: true }
+        t.settings = t.settings.merge(tool_override_settings) if tool_override_settings.present?
         t.save!
       end
     end
@@ -3522,7 +3651,7 @@ describe ExternalToolsController do
     before do
       allow(BasicLTI::Sourcedid).to receive(:encryption_secret) { "encryption-secret-5T14NjaTbcYjc4" }
       allow(BasicLTI::Sourcedid).to receive(:signing_secret) { "signing-secret-vp04BNqApwdwUYPUI" }
-      user_session(@user)
+      user_session(@teacher)
     end
 
     it "generates a sessionless launch" do
@@ -3540,12 +3669,32 @@ describe ExternalToolsController do
       expect(Lti::LogService).to have_received(:new).with(
         tool:,
         context: @course,
-        user: @user,
+        user: @teacher,
         session_id: nil,
         placement: "course_navigation",
         launch_type: :direct_link,
         launch_url: "http://www.example.com/basic_lti"
       )
+    end
+
+    context "with environment overrides" do
+      let(:override_url) { "http://www.example-beta.com/basic_lti" }
+      let(:tool_override_settings) do
+        {
+          "environments" => {
+            "beta_launch_url" => override_url
+          }
+        }
+      end
+
+      before do
+        allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
+      end
+
+      it "uses the environment override URL for the launch" do
+        get :sessionless_launch, params: { course_id: @course.id, verifier: }
+        expect(assigns(:lti_launch).resource_url).to eq(override_url)
+      end
     end
   end
 

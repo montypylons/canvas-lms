@@ -133,7 +133,7 @@ class WikiPagesController < ApplicationController
 
   def new
     GuardRail.activate(:secondary) do
-      unless @context.account.feature_enabled?(:block_content_editor)
+      unless @context.try(:block_content_editor_enabled?)
         return render_unauthorized_action
       end
       unless authorized_action(@context.wiki, @current_user, :update)
@@ -188,7 +188,7 @@ class WikiPagesController < ApplicationController
 
   def determine_editor_feature(context)
     is_block_editor_enabled = context.account.feature_enabled?(:block_editor)
-    is_block_content_editor = context.account.feature_enabled?(:block_content_editor)
+    is_block_content_editor = context.try(:block_content_editor_enabled?)
 
     return :block_content_editor if is_block_content_editor
     return :block_editor if is_block_editor_enabled
@@ -199,7 +199,7 @@ class WikiPagesController < ApplicationController
   def wiki_pages_js_env(context)
     set_k5_mode # we need this to run now, even though we haven't hit the render hook yet
 
-    assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+    assign_to_tags = @context.account.allow_assign_to_differentiation_tags?
 
     editor_feature = determine_editor_feature(context)
 
@@ -234,6 +234,28 @@ class WikiPagesController < ApplicationController
       @wiki_pages_env[:TITLE_AVAILABILITY_PATH] = title_availability_path
     end
     js_env(@wiki_pages_env)
+    set_block_content_editor_ai_alt_text_js_env
     @wiki_pages_env
+  end
+
+  def set_block_content_editor_ai_alt_text_js_env
+    ai_enabled = Account.site_admin.feature_enabled?(:block_content_editor_ai_alt_text) &&
+                 !!@context.try(:block_content_editor_enabled?) &&
+                 !!CedarClient.try(:enabled?)
+
+    ai_alt_text_generation_url = ai_enabled ? ai_alt_text_generation_url_for_context(@context) : nil
+
+    js_env(ai_alt_text_generation_url:)
+  end
+
+  def ai_alt_text_generation_url_for_context(context)
+    case context
+    when Course
+      "/api/v1/courses/#{context.id}/pages_ai/alt_text"
+    when Group
+      "/api/v1/groups/#{context.id}/pages_ai/alt_text"
+    else
+      nil
+    end
   end
 end

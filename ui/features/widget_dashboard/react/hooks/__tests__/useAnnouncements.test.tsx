@@ -23,6 +23,7 @@ import {waitFor} from '@testing-library/react'
 import {setupServer} from 'msw/node'
 import {graphql, HttpResponse} from 'msw'
 import {usePaginatedAnnouncements} from '../useAnnouncements'
+import {clearWidgetDashboardCache} from '../../__tests__/testHelpers'
 
 const mockGqlResponse = {
   data: {
@@ -127,6 +128,10 @@ describe('usePaginatedAnnouncements', () => {
     })
   })
 
+  beforeEach(() => {
+    clearWidgetDashboardCache()
+  })
+
   afterEach(() => {
     server.resetHandlers()
   })
@@ -163,7 +168,6 @@ describe('usePaginatedAnnouncements', () => {
       course: {
         id: '1',
         name: 'Test Course 1',
-        courseCode: '',
       },
       author: {
         _id: 'user1',

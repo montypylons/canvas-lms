@@ -16,7 +16,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
 import {useNode} from '@craftjs/core'
 import {View} from '@instructure/ui-view'
 import {SettingsIncludeTitle} from '../BlockItems/SettingsIncludeTitle/SettingsIncludeTitle'
@@ -39,6 +38,8 @@ export const MediaBlockSettings = () => {
     titleColor,
     backgroundColor,
     src,
+    mediaId,
+    attachment_id,
   } = useNode(node => ({
     ...defaultProps,
     ...node.data.props,
@@ -81,8 +82,6 @@ export const MediaBlockSettings = () => {
       <SettingsIncludeTitle checked={includeBlockTitle} onChange={handleIncludeBlockTitleChange} />
       <SettingsSectionToggle
         title={I18n.t('Color settings')}
-        collapsedLabel={I18n.t('Expand color settings')}
-        expandedLabel={I18n.t('Collapse color settings')}
         defaultExpanded={true}
         includeSeparator={true}
       >
@@ -107,12 +106,13 @@ export const MediaBlockSettings = () => {
       </SettingsSectionToggle>
       <SettingsSectionToggle
         title={I18n.t('Media settings')}
-        collapsedLabel={I18n.t('Expand media settings')}
-        expandedLabel={I18n.t('Collapse media settings')}
         defaultExpanded={true}
         includeSeparator={false}
       >
-        <SettingsUploadMedia onMediaChange={handleMediaChange} url={src!} />
+        <SettingsUploadMedia
+          onMediaChange={handleMediaChange}
+          mediaSource={{src, mediaId, attachment_id}}
+        />
       </SettingsSectionToggle>
     </>
   )

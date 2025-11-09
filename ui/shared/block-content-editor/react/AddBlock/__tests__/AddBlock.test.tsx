@@ -18,12 +18,11 @@
 
 import {render, screen} from '@testing-library/react'
 import {AddBlock} from '../AddBlock'
-import {mockBlockContentEditorContext} from '../../__tests__/mockBlockContentEditorContext'
 
 const openMock = jest.fn()
-jest.mock('../../BlockContentEditorContext', () => ({
+jest.mock('../../hooks/useAddBlockModal', () => ({
   __esModule: true,
-  useBlockContentEditorContext: jest.fn(() => mockBlockContentEditorContext({openMock})),
+  useAddBlockModal: jest.fn(() => ({open: openMock})),
 }))
 
 jest.mock('../../hooks/useAddNode', () => ({
@@ -33,6 +32,12 @@ jest.mock('../../hooks/useAddNode', () => ({
 jest.mock('../../hooks/useGetBlocksCount', () => ({
   useGetBlocksCount: () => ({
     blocksCount: 0,
+  }),
+}))
+
+jest.mock('../../hooks/useFocusManagement', () => ({
+  useFocusManagement: () => ({
+    elementRef: jest.fn(),
   }),
 }))
 

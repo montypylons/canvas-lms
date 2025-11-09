@@ -27,6 +27,7 @@ import {SimpleSelect} from '@instructure/ui-simple-select'
 import {Table} from '@instructure/ui-table'
 import {
   AsyncPageViewJobStatus,
+  AsyncPageviewJob,
   displayTTL,
   isInProgress,
   notExpired,
@@ -36,6 +37,8 @@ import {
 } from './hooks/asyncPageviewExport'
 import {Pill} from '@instructure/ui-pill'
 import {Link} from '@instructure/ui-link'
+import {FetchApiError} from '@canvas/do-fetch-api-effect'
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 
 const I18n = i18nScope('page_views')
 
@@ -44,9 +47,8 @@ export interface PageViewsDownloadProps {
 }
 
 const locale = ENV?.LOCALE || navigator.language
-const timeZone = ENV?.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone
 // For displaying selected months, we need a format with month and year only
-const formatter = new Intl.DateTimeFormat(locale, {year: 'numeric', month: 'long', timeZone})
+const formatter = new Intl.DateTimeFormat(locale, {year: 'numeric', month: 'long'})
 
 // Available dates are first day of each month for the last 12 months
 const availableDates = new Array(13).fill(0).map((_, i) => {
@@ -82,6 +84,33 @@ export function PageViewsDownload({userId}: PageViewsDownloadProps): React.JSX.E
   const [asyncJobs, _setAsyncJobs, pollAsyncJobs, postAsyncJob, getDownloadUrl] =
     useAsyncPageviewJobs(`pv-export-${userId}`, userId)
 
+  const handleDownload = async (record: AsyncPageviewJob) => {
+    try {
+      const url = await getDownloadUrl(record)
+      window.open(url, '_self')
+    } catch (error) {
+      if (
+        error instanceof FetchApiError &&
+        (error.response.status === 410 || error.response.status === 404)
+      ) {
+        showFlashAlert({
+          message: I18n.t(
+            'The requested export is no longer available and is removed from the list. Please create a new export.',
+          ),
+          type: 'info',
+          err: undefined,
+        })
+      }
+      if (error instanceof FetchApiError && error.response.status === 204) {
+        showFlashAlert({
+          message: I18n.t('The requested export is empty.'),
+          type: 'info',
+          err: undefined,
+        })
+      }
+    }
+  }
+
   const jobsInProgress = asyncJobs.some(isInProgress)
 
   // Polling mechanism for asyncJobs in progress
@@ -89,11 +118,19 @@ export function PageViewsDownload({userId}: PageViewsDownloadProps): React.JSX.E
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let isCancelled = false
 
-    pollAsyncJobs().then(stateUpdateNeeded => {
-      if (stateUpdateNeeded && !isCancelled) {
-        timeoutId = setTimeout(pollAsyncJobs, 5000)
-      }
-    })
+    pollAsyncJobs()
+      .then(stateUpdateNeeded => {
+        if (stateUpdateNeeded && !isCancelled) {
+          timeoutId = setTimeout(pollAsyncJobs, 5000)
+        }
+      })
+      .catch(_e => {
+        // A failing poll is considered an intermittent error, so we keep polling
+        if (!isCancelled) {
+          if (timeoutId) clearTimeout(timeoutId)
+          timeoutId = setTimeout(pollAsyncJobs, 5000)
+        }
+      })
     return () => {
       isCancelled = true
       if (timeoutId) clearTimeout(timeoutId)
@@ -114,12 +151,24 @@ export function PageViewsDownload({userId}: PageViewsDownloadProps): React.JSX.E
       return
     }
     setExportError(null)
+    // endDisplayDate must be one month earlier than the submitted endMonth (which is exclusive)
+    const endDisplayDate = new Date(new Date(endMonth).setMonth(new Date(endMonth).getMonth() - 1))
     postAsyncJob(
       userId,
-      `${formatter.format(new Date(startMonth))} - ${formatter.format(new Date(endMonth))}`,
+      `${formatter.format(new Date(startMonth))} - ${formatter.format(endDisplayDate)}`,
       startMonth.toString(),
       endMonth.toString(),
-    )
+    ).catch(e => {
+      if (e instanceof FetchApiError && e.response.status === 429) {
+        setExportError(
+          I18n.t('You must wait for your running jobs to finish before starting a new one.'),
+        )
+      } else {
+        setExportError(
+          I18n.t('There was a problem creating a new export job. Please try again later.'),
+        )
+      }
+    })
   }
 
   return (
@@ -199,7 +248,13 @@ export function PageViewsDownload({userId}: PageViewsDownloadProps): React.JSX.E
                 <Table.Row key={record.query_id}>
                   <Table.Cell id={`export-name-${record.query_id}`}>
                     {record.status === AsyncPageViewJobStatus.Finished ? (
-                      <Link href={getDownloadUrl(record)}>{record.name}</Link>
+                      <Link
+                        onClick={() => handleDownload(record)}
+                        data-testid={`download-${record.query_id}`}
+                        isWithinText={false}
+                      >
+                        {record.name}
+                      </Link>
                     ) : (
                       record.name
                     )}

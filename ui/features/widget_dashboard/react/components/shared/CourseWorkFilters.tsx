@@ -20,7 +20,6 @@ import React, {useMemo} from 'react'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {SimpleSelect} from '@instructure/ui-simple-select'
-import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import type {CourseOption} from '../../types'
 import {useResponsiveContext} from '../../hooks/useResponsiveContext'
 
@@ -63,35 +62,37 @@ const CourseWorkFilters: React.FC<CourseWorkFiltersProps> = ({
   statisticsOnly = false,
 }) => {
   const {isMobile} = useResponsiveContext()
+
   const courseOptions: CourseOption[] = useMemo(
     () => [{id: 'all', name: I18n.t('All Courses')}, ...userCourses],
     [userCourses],
   )
 
-  const dateFilterOptions: DateFilterConfig[] = useMemo(() => {
-    const options: DateFilterConfig[] = [
+  const dateFilterOptions: DateFilterConfig[] = useMemo(
+    () => [
       {id: 'next3days', label: I18n.t('Next 3 days')},
       {id: 'next7days', label: I18n.t('Next 7 days')},
       {id: 'next14days', label: I18n.t('Next 14 days')},
+    ],
+    [],
+  )
+
+  const statusFilterOptions: DateFilterConfig[] = useMemo(
+    () => [
       {id: 'missing', label: I18n.t('Missing')},
       {id: 'submitted', label: I18n.t('Submitted')},
-    ]
-    return statisticsOnly
-      ? options.filter(opt => opt.id !== 'missing' && opt.id !== 'submitted')
-      : options
-  }, [statisticsOnly])
-
-  const filterMobilePadding = useMemo(() => 'xx-small', [])
+    ],
+    [],
+  )
 
   return (
-    <Flex direction={isMobile ? 'column' : 'row'}>
-      <Flex.Item shouldGrow={isMobile} padding={isMobile ? filterMobilePadding : undefined}>
+    <Flex direction={isMobile ? 'column' : 'row'} wrap="wrap" gap="small">
+      <Flex.Item shouldGrow overflowX="visible" overflowY="visible">
         <SimpleSelect
-          renderLabel={<ScreenReaderContent>{I18n.t('Filter by course')}</ScreenReaderContent>}
+          renderLabel={I18n.t('Course filter:')}
           value={selectedCourse}
           onChange={onCourseChange}
-          width={isMobile ? '100%' : '200px'}
-          size="small"
+          data-testid="course-filter-select"
         >
           {courseOptions.map(option => (
             <SimpleSelect.Option key={option.id} id={option.id} value={option.id}>
@@ -100,19 +101,29 @@ const CourseWorkFilters: React.FC<CourseWorkFiltersProps> = ({
           ))}
         </SimpleSelect>
       </Flex.Item>
-      <Flex.Item shouldGrow={isMobile} padding={isMobile ? filterMobilePadding : undefined}>
+      <Flex.Item shouldGrow overflowX="visible" overflowY="visible">
         <SimpleSelect
-          renderLabel={<ScreenReaderContent>{I18n.t('Filter by due date')}</ScreenReaderContent>}
+          renderLabel={I18n.t('Assignment filter:')}
           value={selectedDateFilter}
           onChange={onDateFilterChange}
-          width={isMobile ? '100%' : '150px'}
-          size="small"
+          data-testid="date-filter-select"
         >
-          {dateFilterOptions.map(option => (
-            <SimpleSelect.Option key={option.id} id={option.id} value={option.id}>
-              {option.label}
-            </SimpleSelect.Option>
-          ))}
+          <SimpleSelect.Group renderLabel={I18n.t('Filter by date')}>
+            {dateFilterOptions.map(option => (
+              <SimpleSelect.Option key={option.id} id={option.id} value={option.id}>
+                {option.label}
+              </SimpleSelect.Option>
+            ))}
+          </SimpleSelect.Group>
+          {!statisticsOnly && (
+            <SimpleSelect.Group renderLabel={I18n.t('Filter by submission status')}>
+              {statusFilterOptions.map(option => (
+                <SimpleSelect.Option key={option.id} id={option.id} value={option.id}>
+                  {option.label}
+                </SimpleSelect.Option>
+              ))}
+            </SimpleSelect.Group>
+          )}
         </SimpleSelect>
       </Flex.Item>
     </Flex>

@@ -383,6 +383,7 @@ RSpec.describe ApplicationController do
         root_account = double(global_id: 1,
                               id: 1,
                               feature_enabled?: false,
+                              feature_allowed?: false,
                               service_enabled?: false,
                               open_registration?: true,
                               can_add_pronouns?: true,
@@ -391,11 +392,13 @@ RSpec.describe ApplicationController do
                               cache_key: "key",
                               uuid: "bleh",
                               salesforce_id: "blah",
-                              suppress_assignments?: false,
-                              enable_content_a11y_checker?: true)
+                              suppress_assignments?: false)
+        context = double(a11y_checker_enabled?: true)
+        allow(context).to receive(:grants_any_right?).and_return(false)
         allow(root_account).to receive(:kill_joy?).and_return(false)
         allow(HostUrl).to receive_messages(file_host: "files.example.com")
         controller.instance_variable_set(:@domain_root_account, root_account)
+        controller.instance_variable_set(:@context, context)
         expect(controller.js_env[:SETTINGS][:open_registration]).to be_truthy
         expect(controller.js_env[:SETTINGS][:can_add_pronouns]).to be_truthy
         expect(controller.js_env[:SETTINGS][:show_sections_in_course_tray]).to be_truthy
@@ -407,6 +410,7 @@ RSpec.describe ApplicationController do
         root_account = double(global_id: 1,
                               id: 1,
                               feature_enabled?: false,
+                              feature_allowed?: false,
                               service_enabled?: false,
                               open_registration?: true,
                               can_add_pronouns?: true,
@@ -623,6 +627,7 @@ RSpec.describe ApplicationController do
       describe "CAREER_THEME_URL" do
         before do
           allow_any_instance_of(CanvasCareer::Config).to receive(:theme_url).and_return("https://theme.url")
+          allow_any_instance_of(CanvasCareer::Config).to receive(:dark_theme_url).and_return("https://dark-theme.url")
         end
 
         it "is nil if career is not enabled" do
@@ -633,6 +638,23 @@ RSpec.describe ApplicationController do
         it "is set to the theme url if career is enabled" do
           allow(CanvasCareer::ExperienceResolver).to receive(:career_affiliated_institution?).and_return(true)
           expect(@controller.js_env[:CAREER_THEME_URL]).to eq "https://theme.url"
+        end
+      end
+
+      describe "CAREER_DARK_THEME_URL" do
+        before do
+          allow_any_instance_of(CanvasCareer::Config).to receive(:theme_url).and_return("https://theme.url")
+          allow_any_instance_of(CanvasCareer::Config).to receive(:dark_theme_url).and_return("https://dark-theme.url")
+        end
+
+        it "is nil if career is not enabled" do
+          allow(CanvasCareer::ExperienceResolver).to receive(:career_affiliated_institution?).and_return(false)
+          expect(@controller.js_env[:CAREER_DARK_THEME_URL]).to be_nil
+        end
+
+        it "is set to the dark theme url if career is enabled" do
+          allow(CanvasCareer::ExperienceResolver).to receive(:career_affiliated_institution?).and_return(true)
+          expect(@controller.js_env[:CAREER_DARK_THEME_URL]).to eq "https://dark-theme.url"
         end
       end
     end
@@ -2974,6 +2996,36 @@ RSpec.describe ApplicationController do
     end
   end
 
+  describe "new_quizzes_native_experience_enabled? helper" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+    end
+
+    before do
+      user_session(@teacher)
+      controller.instance_variable_set(:@context, @course)
+    end
+
+    it "returns false when the feature flag is disabled" do
+      expect(controller.send(:new_quizzes_native_experience_enabled?)).to be false
+    end
+
+    it "returns true when the feature flag is enabled on the root account" do
+      @course.root_account.enable_feature!(:new_quizzes_native_experience)
+      expect(controller.send(:new_quizzes_native_experience_enabled?)).to be true
+    end
+
+    it "returns false when context does not respond to root_account" do
+      controller.instance_variable_set(:@context, Object.new)
+      expect(controller.send(:new_quizzes_native_experience_enabled?)).to be false
+    end
+
+    it "returns false when context is nil" do
+      controller.instance_variable_set(:@context, nil)
+      expect(controller.send(:new_quizzes_native_experience_enabled?)).to be false
+    end
+  end
+
   describe "new math equation handling feature" do
     let(:root_account) { Account.default }
 
@@ -3759,6 +3811,51 @@ RSpec.describe ApplicationController, "#cached_js_env_account_features" do
     flags = controller.cached_js_env_account_features
 
     expect(flags).to have_key(:course_pace_pacing_with_mastery_paths)
-    expect(flags).to have_key(:rce_studio_embed_improvements)
+    expect(flags).to have_key(:new_quizzes_surveys)
+  end
+
+  it "does not include course-level feature flags" do
+    flags = controller.cached_js_env_account_features
+
+    # rce_studio_embed_improvements is a course-level flag, so it shouldn't be in account features
+    expect(flags).not_to have_key(:rce_studio_embed_improvements)
+  end
+end
+
+RSpec.describe ApplicationController, "#add_ignite_agent_bundle?" do
+  let_once(:user) { user_factory(active_all: true) }
+  let_once(:account) { Account.default }
+
+  before do
+    controller.instance_variable_set(:@domain_root_account, account)
+    controller.instance_variable_set(:@current_user, user)
+    allow(controller).to receive(:session).and_return({})
+  end
+
+  it "returns false when no user is logged in" do
+    controller.instance_variable_set(:@current_user, nil)
+    expect(controller.send(:add_ignite_agent_bundle?)).to be false
+  end
+
+  it "returns false when ignite_agent_enabled feature is disabled" do
+    account.disable_feature!(:ignite_agent_enabled)
+    expect(controller.send(:add_ignite_agent_bundle?)).to be false
+  end
+
+  it "returns false when user lacks access_ignite_agent permission" do
+    account.enable_feature!(:ignite_agent_enabled)
+    expect(controller.send(:add_ignite_agent_bundle?)).to be false
+  end
+
+  it "returns true when user has access_ignite_agent permission" do
+    account.enable_feature!(:ignite_agent_enabled)
+    account.role_overrides.create!(
+      permission: :access_ignite_agent,
+      role: admin_role,
+      enabled: true
+    )
+    account.account_users.create!(user:, role: admin_role)
+
+    expect(controller.send(:add_ignite_agent_bundle?)).to be true
   end
 end

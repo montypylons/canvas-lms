@@ -310,13 +310,13 @@ class AuthenticationProvider < ActiveRecord::Base
         unique_id = unique_ids
         unique_ids = {}
       end
+      user = User.new(default_name: unique_id, workflow_state: "registered")
       pseudonym = account.pseudonyms.build
-      pseudonym.user = User.create!(name: unique_id) { |u| u.workflow_state = "registered" }
+      pseudonym.user = user
       pseudonym.authentication_provider = self
       pseudonym.unique_id = unique_id
       pseudonym.unique_ids = unique_ids
-      pseudonym.save!
-      apply_federated_attributes(pseudonym, provider_attributes, purpose: :provisioning)
+      apply_federated_attributes(pseudonym, provider_attributes, purpose: :provisioning, strict: true)
       try(:post_provision_user, pseudonym:, provider_attributes:)
       pseudonym
     end
@@ -326,11 +326,14 @@ class AuthenticationProvider < ActiveRecord::Base
     end
   end
 
-  def apply_federated_attributes(pseudonym, provider_attributes, purpose: :login)
+  def apply_federated_attributes(pseudonym, provider_attributes, purpose: :login, translate_attributes: true, strict: false)
     user = pseudonym.user
 
-    canvas_attributes = translate_provider_attributes(provider_attributes,
-                                                      purpose:)
+    canvas_attributes = translate_attributes ? translate_provider_attributes(provider_attributes) : provider_attributes.dup
+    # Only should matter when translate_attributes == false, but safe regardless
+    canvas_attributes.delete_if { |k, _| !federated_attributes[k] }
+    canvas_attributes.delete_if { |k, _| federated_attributes[k]["provisioning_only"] } if purpose != :provisioning
+
     given_name = canvas_attributes.delete("given_name")
     surname = canvas_attributes.delete("surname")
     if given_name || surname
@@ -370,6 +373,13 @@ class AuthenticationProvider < ActiveRecord::Base
           pseudonym[attribute] = value
         when "display_name"
           user.short_name = value
+
+          # Previously, there was an issue where setting the short_name would not
+          # propagate to the name if no other name attributes were set, resulting in
+          # the name being the unique_id. Fix that the first time we get a display_name.
+          if user.name == pseudonym.unique_id
+            user.name = value
+          end
         when "email"
           next if value.empty?
 
@@ -383,8 +393,11 @@ class AuthenticationProvider < ActiveRecord::Base
               cc.workflow_state = "unconfirmed"
             end
             if cc.changed?
-              cc.save!
-              cc.send_confirmation!(pseudonym.account) unless autoconfirm
+              if cc.save
+                cc.send_confirmation!(pseudonym.account) unless autoconfirm
+              else
+                logger.warn("Unable to save federated email #{email} for user #{user.id}: #{cc.errors.full_messages.join(", ")}")
+              end
             end
           end
         when "locale"
@@ -407,13 +420,16 @@ class AuthenticationProvider < ActiveRecord::Base
           user.send(:"#{attribute}=", value)
         end
       end
-      if pseudonym.changed? && !pseudonym.save
-        Rails.logger.warn("Unable to save federated pseudonym: #{pseudonym.errors.to_hash}")
+
+      save_method = strict ? :save! : :save
+
+      if pseudonym.changed? && !pseudonym.send(save_method)
+        Rails.logger.warn("Unable to save federated pseudonym: #{pseudonym.errors.full_messages.join(", ")}")
       end
-      if user.changed? && !user.save
-        Rails.logger.warn("Unable to save federated user: #{user.errors.to_hash}")
+      if user.changed? && !user.send(save_method)
+        Rails.logger.warn("Unable to save federated user: #{user.errors.full_messages.join(", ")}")
       end
-      try(:post_federated_attribute_application, pseudonym:, provider_attributes:)
+      try(:post_federated_attribute_application, pseudonym:, provider_attributes:, purpose:)
     end
   end
 
@@ -505,11 +521,9 @@ class AuthenticationProvider < ActiveRecord::Base
     end
   end
 
-  def translate_provider_attributes(provider_attributes, purpose:)
+  def translate_provider_attributes(provider_attributes)
     result = {}
     federated_attributes.each do |(canvas_attribute_name, provider_attribute_config)|
-      next if purpose != :provisioning && provider_attribute_config["provisioning_only"]
-
       provider_attribute_name = provider_attribute_config["attribute"]
 
       if provider_attributes.key?(provider_attribute_name)

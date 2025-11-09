@@ -30,7 +30,7 @@ describe CareerController do
 
   before do
     allow(CanvasCareer::ExperienceResolver).to receive(:new).and_return(resolver)
-    allow(CanvasCareer::Config).to receive(:new).with(@course.root_account).and_return(config)
+    allow(CanvasCareer::Config).to receive(:new).with(@course.root_account, anything).and_return(config)
   end
 
   describe "GET show" do
@@ -71,7 +71,12 @@ describe CareerController do
             horizon_hris_integrations: false,
             horizon_user_profile_page: false,
             horizon_bulk_metadata_import: false,
-            horizon_manual_dashboard_builder: false
+            horizon_manual_dashboard_builder: false,
+            horizon_dark_career_theme_in_learning_provider: false,
+            horizon_learning_library: false,
+            horizon_course_navigation: false,
+            horizon_course_redesign: false,
+            horizon_course_index_page: false
           )
         end
 

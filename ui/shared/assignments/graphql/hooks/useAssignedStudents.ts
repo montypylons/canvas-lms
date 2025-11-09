@@ -17,70 +17,9 @@
  */
 
 import {useQuery} from '@tanstack/react-query'
-import {gql} from 'graphql-tag'
 import {executeQuery} from '@canvas/graphql'
-
-export interface CourseStudent {
-  _id: string
-  name: string
-}
-
-export interface CourseStudentsData {
-  course: {
-    usersConnection: {
-      nodes: CourseStudent[]
-    }
-  }
-}
-
-export interface CourseStudentsVariables {
-  courseId: string
-  filter?: {
-    searchTerm?: string
-    excludeTestStudents: boolean
-  }
-}
-
-export interface AssignedStudentsData {
-  assignment: {
-    assignedStudents: {
-      nodes: CourseStudent[]
-    }
-  }
-}
-
-export interface AssignedStudentsVariables {
-  assignmentId: string
-  filter?: {
-    searchTerm?: string
-  }
-}
-
-export const ASSIGNED_STUDENTS_QUERY = gql`
-  query GetAssignedStudents($assignmentId: ID!, $filter: AssignedStudentsFilter) {
-    assignment(id: $assignmentId) {
-      assignedStudents(filter: $filter) {
-        nodes {
-          _id
-          name
-        }
-      }
-    }
-  }
-`
-
-export const COURSE_STUDENTS_QUERY = gql`
-  query GetCourseStudents($courseId: ID!, $filter: CourseUsersFilter) {
-    course(id: $courseId) {
-      usersConnection(filter: $filter) {
-        nodes {
-          _id
-          name
-        }
-      }
-    }
-  }
-`
+import {AssignedStudentsData, CourseStudent} from '../teacher/AssignmentTeacherTypes'
+import {ASSIGNED_STUDENTS_QUERY} from '../teacher/Queries'
 
 async function getAssignedStudents(
   assignmentId: string,
@@ -96,19 +35,7 @@ async function getAssignedStudents(
   return result.assignment?.assignedStudents?.nodes || []
 }
 
-async function getCourseStudents(courseId: string, searchTerm?: string): Promise<CourseStudent[]> {
-  const result = await executeQuery<CourseStudentsData>(COURSE_STUDENTS_QUERY, {
-    courseId,
-    filter: {
-      searchTerm,
-      excludeTestStudents: true,
-    },
-  })
-
-  return result.course?.usersConnection?.nodes || []
-}
-
-export const useAssignedStudents = (assignmentId: string, courseId: string, searchTerm = '') => {
+export const useAssignedStudents = (assignmentId: string, searchTerm = '') => {
   const trimmedSearchTerm = searchTerm.trim()
   const finalSearchTerm = trimmedSearchTerm || undefined
 
@@ -116,12 +43,7 @@ export const useAssignedStudents = (assignmentId: string, courseId: string, sear
     queryKey: ['assignedStudents', assignmentId, finalSearchTerm],
     queryFn: () => getAssignedStudents(assignmentId, finalSearchTerm),
     enabled: !!assignmentId,
-  })
-
-  const courseStudentsQuery = useQuery<CourseStudent[], Error>({
-    queryKey: ['courseStudents', courseId, finalSearchTerm],
-    queryFn: () => getCourseStudents(courseId, finalSearchTerm),
-    enabled: !!courseId && !assignmentId,
+    networkMode: 'always',
   })
 
   if (assignmentId) {
@@ -129,12 +51,6 @@ export const useAssignedStudents = (assignmentId: string, courseId: string, sear
       students: assignedStudentsQuery.data || [],
       loading: assignedStudentsQuery.isLoading,
       error: assignedStudentsQuery.error,
-    }
-  } else if (courseId) {
-    return {
-      students: courseStudentsQuery.data || [],
-      loading: courseStudentsQuery.isLoading,
-      error: courseStudentsQuery.error,
     }
   }
 

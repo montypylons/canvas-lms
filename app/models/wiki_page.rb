@@ -358,11 +358,11 @@ class WikiPage < ActiveRecord::Base
     RequestCache.cache(locked_request_cache_key(user)) do
       locked = false
       page_for_user = (assignment || self).overridden_for(user)
-      if page_for_user.unlock_at && page_for_user.unlock_at > Time.zone.now
+      if page_for_user.unlock_at && page_for_user.unlock_at > Time.zone.now && !context.enable_course_paces?
         locked = { object: page_for_user, unlock_at: page_for_user.unlock_at }
       elsif could_be_locked && (item = locked_by_module_item?(user, opts))
         locked = { object: self, module: item.context_module }
-      elsif page_for_user.lock_at && page_for_user.lock_at < Time.zone.now
+      elsif page_for_user.lock_at && page_for_user.lock_at < Time.zone.now && !context.enable_course_paces?
         locked = { object: page_for_user, lock_at: page_for_user.lock_at }
       end
       locked
@@ -717,7 +717,10 @@ class WikiPage < ActiveRecord::Base
     no_assignment_page_visibilities = without_assignment_in_course(opts[:course_id])
 
     visible_wiki_pages = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(course_ids: opts[:course_id], user_ids: opts[:user_id])
-    visible_wiki_pages = visible_wiki_pages.select { |v| no_assignment_page_visibilities.pluck(:id).include?(v.wiki_page_id) }
+    no_assignment_page_ids = RequestCache.cache("wiki_pages_without_assignment", opts[:course_id]) do
+      no_assignment_page_visibilities.pluck(:id)
+    end
+    visible_wiki_pages = visible_wiki_pages.select { |v| no_assignment_page_ids.include?(v.wiki_page_id) }
     no_assignment_page_visibilities = visible_wiki_pages.group_by(&:user_id)
                                                         .transform_values { |visibilities| visibilities.map(&:wiki_page_id) }
 
@@ -726,5 +729,33 @@ class WikiPage < ActiveRecord::Base
       page_ids_no_assignment = (no_assignment_page_visibilities[user_id] || []).map { |page_id, _| page_id }
       page_ids_with_assignment.concat(page_ids_no_assignment)
     end
+  end
+
+  def ingest_to_pine
+    return unless workflow_state == "active" && body.present?
+    return unless context.is_a?(Course) && context.root_account.present?
+
+    metadata = {
+      course_id: context.id.to_s,
+      title:
+    }
+
+    # PineClient requires a user object with uuid and global_id, but we don't have a user in this context
+    # and the action is more of a system-initiated action than a user-initiated action
+    null_user = Struct.new(:uuid, :global_id, keyword_init: true).new(uuid: nil, global_id: nil)
+
+    PineClient.ingest_html(
+      html_content: body,
+      metadata:,
+      source: "canvas",
+      source_id: id.to_s,
+      source_type: "wiki_page",
+      feature_slug: "horizon-content-ingestion",
+      root_account_uuid: context.root_account.uuid,
+      current_user: null_user
+    )
+  rescue => e
+    Rails.logger.error("Failed to ingest wiki page #{id} for context #{context.class.name}:#{context.id}: #{e.message}")
+    raise
   end
 end

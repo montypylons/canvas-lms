@@ -374,10 +374,6 @@ class CoursesController < ApplicationController
   include Api::V1::Progress
   include K5Mode
 
-  include GradebookRequestMetricsTrackerHelper
-
-  around_action :track_request_timing, only: [:users]
-
   # @API List your courses
   # Returns the paginated list of active courses for the current user.
   #
@@ -613,7 +609,7 @@ class CoursesController < ApplicationController
       when "enrolled_as"
         e.readable_role_name
       when "accessibility"
-        [e.course.exceeds_accessibility_scan_limit? ? 1 : 0, accessibility_issues_count(e.course)]
+        [e.course.a11y_checker_enabled? ? 1 : 0, accessibility_issues_count(e.course)]
       else
         if type == "past"
           [e.course.published? ? 0 : 1, Canvas::ICU.collation_key(e.long_name)]
@@ -1655,6 +1651,15 @@ class CoursesController < ApplicationController
                  data: @alerts,
                }
              })
+      remote_env(ams:
+        {
+          launch_url: Services::Ams.launch_url,
+          api_url: Services::Ams.api_url
+        })
+
+      if Account.site_admin.feature_enabled?(:grading_scheme_updates)
+        js_env({ COURSE_DEFAULT_GRADING_SCHEME_ID: @context.grading_standard_id || @context.default_grading_standard&.id })
+      end
 
       set_tutorial_js_env
 
@@ -1830,7 +1835,8 @@ class CoursesController < ApplicationController
       :conditional_release,
       :show_student_only_module_id,
       :show_teacher_only_module_id,
-      :horizon_course
+      :horizon_course,
+      :default_student_gradebook_view
     )
     changes = changed_settings(@course.changes, @course.settings, old_settings)
 
@@ -2301,8 +2307,7 @@ class CoursesController < ApplicationController
           @course_notifications_enabled = NotificationPolicyOverride.enabled_for(@current_user, @context)
         end
 
-        @accessibility_scan_enabled =
-          @context.root_account.enable_content_a11y_checker? ? !@context.exceeds_accessibility_scan_limit? : false
+        @accessibility_scan_enabled = @context.try(:a11y_checker_enabled?) || false
       end
 
       return if check_for_xlist
@@ -3399,7 +3404,8 @@ class CoursesController < ApplicationController
         params_for_update[:start_at] = nil if @course.unpublished?
         params_for_update[:conclude_at] = nil
       end
-      can_change_csp = @course.account.grants_right?(@current_user, session, :manage_courses_admin)
+
+      can_change_csp = @course.can_update_csp_settings?(@current_user, session)
       disable_csp = params_for_update.delete(:disable_csp)
       if can_change_csp && !disable_csp.nil?
         if value_to_boolean(disable_csp)
@@ -3964,7 +3970,11 @@ class CoursesController < ApplicationController
     session[:become_user_id] = @fake_student.id
     return_url = course_path(@context)
     session.delete(:masquerade_return_to)
-    return return_to(request.referer, return_url || dashboard_url) if value_to_boolean(params[:redirect_to_referer])
+
+    if value_to_boolean(params[:redirect_to_referer])
+      referer_url = remove_horizon_params(request.referer)
+      return return_to(referer_url, return_url || dashboard_url)
+    end
 
     return_to(return_url, request.referer || dashboard_url)
   end
@@ -4131,7 +4141,7 @@ class CoursesController < ApplicationController
 
     return unless authorized_action(@context, @current_user, RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
 
-    embed = params.require(:embed).permit(:width, :height, :field, :id, :path, :resource_type, :src, :resource_group_key).to_h.with_indifferent_access
+    embed = params.require(:embed).permit(:width, :height, :field, :id, :content_id, :path, :resource_type, :src, :resource_group_key).to_h.with_indifferent_access
     embed[:id] = embed[:id].to_i
     embed[:field] = embed[:field].to_sym
     scan_id = params.require(:scan_id)
@@ -4172,6 +4182,36 @@ class CoursesController < ApplicationController
     end
 
     render json: { conversions: active_conversions }, status: :ok
+  end
+
+  def update_youtube_migration_scan
+    get_context
+
+    unless @context.feature_enabled?(:youtube_migration)
+      return render status: :not_found, template: "shared/errors/404_message"
+    end
+
+    return unless authorized_action(@context, @current_user, RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+
+    scan_id = params.require(:scan_id).to_i
+    required_params = update_youtube_migration_scan_params
+
+    begin
+      service = YoutubeMigrationService.new(@context)
+      service.process_new_quizzes_scan_update(
+        scan_id,
+        new_quizzes_scan_status: required_params[:new_quizzes_scan_status],
+        new_quizzes_scan_results: required_params[:new_quizzes_scan_results]
+      )
+
+      render json: { success: true }, status: :ok
+    rescue ActiveRecord::RecordNotFound
+      reset_progress_with_service if @context
+      render json: { error: "Youtube Scan not found" }, status: :not_found
+    rescue
+      reset_progress_with_service if @context
+      render json: { error: "An Error occured during updating the youtube scan results" }, status: :internal_server_error
+    end
   end
 
   def start_link_validation
@@ -4420,11 +4460,41 @@ class CoursesController < ApplicationController
   helper_method :visible_self_enrollment_option
 
   def accessibility_issues_count(course)
-    return 0 if course.exceeds_accessibility_scan_limit?
-
     AccessibilityIssue.active.where(course:).count
   end
   helper_method :accessibility_issues_count
+
+  # @API Restore course version
+  #
+  # Restore a course to a prior version.
+  #
+  # @argument version_id [Required, Integer]
+  #   The version to restore to (use the syllabus_versions include parameter
+  #   in the course show API to see available versions)
+  #
+  # @example_request
+  #    curl -X POST -H 'Authorization: Bearer <token>' \
+  #    https://<canvas>/api/v1/courses/123/restore/4
+  #
+  # @returns Course
+  def restore_version
+    not_found unless Account.site_admin&.feature_enabled?(:syllabus_versioning)
+
+    get_context
+    return unless authorized_action(@context, @current_user, :manage_course_content_edit)
+
+    version_id = params[:version_id].to_i
+    @version = @context.versions.find_by!(number: version_id).model
+
+    @context.syllabus_body = @version.syllabus_body
+    @context.saving_user = @current_user
+
+    if @context.save
+      render json: course_json(@context, @current_user, session, [], nil)
+    else
+      render json: @context.errors, status: :unprocessable_entity
+    end
+  end
 
   private
 
@@ -4522,13 +4592,28 @@ class CoursesController < ApplicationController
       :conditional_release,
       :post_manually,
       :horizon_course,
-      :disable_csp
+      :disable_csp,
+      :default_student_gradebook_view
     )
+  end
+
+  def update_youtube_migration_scan_params
+    {
+      new_quizzes_scan_status: params.require(:new_quizzes_scan_status),
+      new_quizzes_scan_results: params[:new_quizzes_scan_results]&.to_unsafe_h || {}
+    }
   end
 
   def disable_conditional_release
     ConditionalRelease::Service.delay_if_production(priority: Delayed::LOW_PRIORITY,
                                                     n_strand: ["conditional_release_unassignment", @course.global_root_account_id])
                                .release_mastery_paths_content_in_course(@course)
+  end
+
+  def reset_progress_with_service
+    service = YoutubeMigrationService.new(@context)
+    service.reset_scan_status
+  rescue => e
+    Rails.logger.error("reset_progress failed for course_id=#{@context.id}: #{e.class} #{e.message}")
   end
 end

@@ -16,6 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import saveMediaRecording from '@instructure/canvas-media/es/saveMediaRecording'
+import {getRCSOriginFromHost} from '@instructure/canvas-rce'
 import {MediaSources} from './types'
 
 export type StoreProp = {
@@ -28,7 +29,7 @@ export type UploadData = {
   theFile?: File
   fileUrl?: string
 }
-export const panels = ['COMPUTER', 'URL', 'course_media', 'user_media']
+export const panels = ['COMPUTER', 'VIDEO_URL', 'course_media', 'user_media']
 export type UploadFilePanelIds = (typeof panels)[number]
 
 const progressCallBack = () => {}
@@ -46,7 +47,7 @@ const handleComputerUpload = async (uploadData: UploadData, storeProps: StorePro
     const rcsConfig = {
       contextId,
       contextType,
-      origin: host,
+      origin: getRCSOriginFromHost(host),
       headers: {Authorization: `Bearer ${jwt}`},
     }
 
@@ -57,7 +58,9 @@ const handleComputerUpload = async (uploadData: UploadData, storeProps: StorePro
     if (!result.mediaObject?.embedded_iframe_url) {
       throw new Error('No iframe media URL given')
     }
-    return result.mediaObject.media_object.media_id
+    const mediaId = result.mediaObject.media_object.media_id
+    const src = result.mediaObject.embedded_iframe_url
+    return {mediaId, src}
   } catch (error) {
     console.error('Media upload error details:', error)
     throw new Error('Failed to upload the media file, please try again')
@@ -81,13 +84,13 @@ export const handleMediaSubmit = async (
 ): Promise<MediaSources> => {
   switch (selectedPanel) {
     case 'COMPUTER': {
-      const mediaId = await handleComputerUpload(uploadData, storeProps)
-      return {mediaId}
+      const {mediaId, src} = await handleComputerUpload(uploadData, storeProps)
+      return {mediaId, src} // save both mediaId and src for now
     }
     case 'user_media':
     case 'course_media': {
       const attachment_id = await handleCourseMediaUpload(uploadData)
-      return {attachment_id}
+      return {attachment_id, src: uploadData.fileUrl} // save both attachment_id and src for now
     }
     default: {
       if (!uploadData.fileUrl) {

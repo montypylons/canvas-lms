@@ -23,8 +23,6 @@ class Lti::AssetReport < ApplicationRecord
   extend RootAccountResolver
   include Canvas::SoftDeletable
 
-  self.ignored_columns += %i[score_given score_maximum]
-
   resolves_root_account through: :asset_processor
 
   # For now, there is no dependent: destroy from asset to report,
@@ -130,25 +128,6 @@ class Lti::AssetReport < ApplicationRecord
     if extensions.inspect.length > MAX_EXTENSIONS_SIZE
       errors.add(:extensions, "size limit exceeded")
     end
-  end
-
-  # See also fields in graphql/types/lti_asset_report_type.rb (used
-  # in New Speedgrader)
-  def info_for_display
-    {
-      _id: id,
-      title:,
-      comment:,
-      result:,
-      resultTruncated: result_truncated,
-      indicationColor: indication_color,
-      indicationAlt: indication_alt,
-      errorCode: error_code,
-      processingProgress: effective_processing_progress,
-      priority:,
-      launchUrlPath: launch_url_path,
-      resubmitAvailable: resubmit_available?,
-    }.compact
   end
 
   def effective_processing_progress

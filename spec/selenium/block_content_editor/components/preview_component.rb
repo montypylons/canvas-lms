@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative "../../common"
-require_relative "block_modes/block_component_factory"
+require_relative "blocks/block_component_factory"
 
 class PreviewComponent
   include SeleniumDependencies
@@ -29,10 +29,6 @@ class PreviewComponent
 
   def preview_layout
     f(preview_layout_selector)
-  end
-
-  def preview_selector_bar
-    f(".preview-selector-bar-container")
   end
 
   def tabs
@@ -57,16 +53,6 @@ class PreviewComponent
 
   def preview_container_width
     preview_frame.size.width
-  end
-
-  def preview_blocks
-    ff(".content-wrapper>div", preview_layout).map do |element|
-      BlockComponentFactory.create(element, mode: :preview)
-    end
-  end
-
-  def first_preview_block
-    preview_blocks.first
   end
 
   def preview_options

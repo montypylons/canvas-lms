@@ -22,7 +22,7 @@ import {
   LoadingIndicator,
   sizeMediaPlayer,
 } from '@instructure/canvas-media'
-import {CaptionMetaData, StudioPlayer} from '@instructure/studio-player'
+import {CaptionMetaData, StudioPlayer, type StudioPlayerProps} from '@instructure/studio-player'
 import {Alert} from '@instructure/ui-alerts'
 import {Flex} from '@instructure/ui-flex'
 import {Spinner} from '@instructure/ui-spinner'
@@ -106,6 +106,12 @@ interface BaseCanvasStudioPlayerProps {
   explicitSize?: {width: number | string; height: number | string}
   hideUploadCaptions?: boolean
   isInverseVariant?: boolean
+  kebabMenuElements?: StudioPlayerProps['kebabMenuElements']
+  enableSidebar?: StudioPlayerProps['enableSidebar']
+  openSidebar?: StudioPlayerProps['openSidebar']
+  tabs?: StudioPlayerProps['tabs']
+  emptyTranscriptsComponent?: StudioPlayerProps['emptyTranscriptsComponent']
+  rollingTranscriptElement?: StudioPlayerProps['rollingTranscriptElement']
 }
 
 type CanvasStudioPropsWithMediaIdOrAttachmentId =
@@ -130,6 +136,12 @@ export default function CanvasStudioPlayer({
   explicitSize,
   hideUploadCaptions = false,
   isInverseVariant = false,
+  kebabMenuElements = [],
+  enableSidebar = false,
+  openSidebar = false,
+  tabs,
+  emptyTranscriptsComponent,
+  rollingTranscriptElement,
 }: CanvasStudioPropsWithMediaIdOrAttachmentId) {
   const [mediaId, setMediaId] = useState(media_id)
   const captions: CaptionMetaData[] | undefined = Array.isArray(media_captions)
@@ -290,14 +302,12 @@ export default function CanvasStudioPlayer({
     if (mediaObjNetworkErr) {
       if (is_attachment) {
         return (
-          // @ts-expect-error
           <Alert key="bepatientalert" variant="info" margin="x-small" liveRegion={liveRegion}>
             {I18n.t('Your media has been uploaded and will appear here after processing.')}
           </Alert>
         )
       } else {
         return (
-          // @ts-expect-error
           <Alert key="erralert" variant="error" margin="small" liveRegion={liveRegion}>
             {I18n.t('Failed retrieving media sources.')}
           </Alert>
@@ -307,7 +317,6 @@ export default function CanvasStudioPlayer({
     if (retryAttempt >= retryAttempts) {
       // this should be very rare
       return (
-        // @ts-expect-error
         <Alert key="giveupalert" variant="info" margin="x-small" liveRegion={liveRegion}>
           {I18n.t(
             'Giving up on retrieving media sources. This issue will probably resolve itself eventually.',
@@ -319,7 +328,6 @@ export default function CanvasStudioPlayer({
       return (
         <Flex margin="xx-small" justifyItems="space-between">
           <Flex.Item margin="0 0 x-small 0" shouldGrow={true} shouldShrink={true}>
-            {/* @ts-expect-error */}
             <Alert key="bepatientalert" variant="info" margin="x-small" liveRegion={liveRegion}>
               {I18n.t('Your media has been uploaded and will appear here after processing.')}
             </Alert>
@@ -366,6 +374,17 @@ export default function CanvasStudioPlayer({
     handlePlayerSize({})
   }, [mediaSources, type, boundingBox, handlePlayerSize])
 
+  useEffect(() => {
+    if (explicitSize) {
+      if (explicitSize.width !== containerWidth) {
+        setContainerWidth(explicitSize.width)
+      }
+      if (explicitSize.height !== containerHeight) {
+        setContainerHeight(explicitSize.height)
+      }
+    }
+  }, [explicitSize, containerWidth, containerHeight])
+
   function renderLoader() {
     if (retryAttempt >= showBePatientMsgAfterAttempts) {
       setIsLoading(false)
@@ -402,9 +421,14 @@ export default function CanvasStudioPlayer({
               hideFullScreen={!includeFullscreen}
               title={getAriaLabel()}
               onCaptionsDelete={hideCaptionButtons ? undefined : deleteCaption}
+              enableSidebar={enableSidebar}
+              openSidebar={openSidebar}
+              tabs={tabs}
+              emptyTranscriptsComponent={emptyTranscriptsComponent}
+              rollingTranscriptElement={rollingTranscriptElement}
               kebabMenuElements={
                 hideCaptionButtons
-                  ? undefined
+                  ? [...kebabMenuElements]
                   : [
                       {
                         id: 'upload-cc',

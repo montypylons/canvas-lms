@@ -22,7 +22,8 @@ import {useScope as createI18nScope} from '@canvas/i18n'
 import {ButtonBlockIndividualButtonSettings} from './ButtonBlockIndividualButtonSettings'
 import {ButtonBlockGeneralButtonSettings} from './ButtonBlockGeneralButtonSettings'
 import {ButtonBlockColorSettings} from './ButtonBlockColorSettings'
-import {ButtonBlockProps, ButtonData, ButtonAlignment, ButtonLayout} from './types'
+import {ButtonBlockProps, ButtonAlignment, ButtonLayout} from './types'
+import {ButtonData} from '../BlockItems/Button/types'
 import {SettingsSectionToggle} from '../BlockItems/SettingsSectionToggle/SettingsSectionToggle'
 import {SettingsIncludeTitle} from '../BlockItems/SettingsIncludeTitle/SettingsIncludeTitle'
 import {defaultProps} from './defaultProps'
@@ -91,8 +92,6 @@ export const ButtonBlockSettings = () => {
       <SettingsIncludeTitle checked={includeBlockTitle} onChange={handleIncludeBlockTitleChange} />
       <SettingsSectionToggle
         title={I18n.t('Color settings')}
-        collapsedLabel={I18n.t('Expand color settings')}
-        expandedLabel={I18n.t('Collapse color settings')}
         defaultExpanded={true}
         includeSeparator={true}
       >
@@ -107,8 +106,6 @@ export const ButtonBlockSettings = () => {
 
       <SettingsSectionToggle
         title={I18n.t('General button settings')}
-        collapsedLabel={I18n.t('Expand general button settings')}
-        expandedLabel={I18n.t('Collapse general button settings')}
         defaultExpanded={true}
         includeSeparator={true}
       >
@@ -124,8 +121,6 @@ export const ButtonBlockSettings = () => {
 
       <SettingsSectionToggle
         title={I18n.t('Individual button settings')}
-        collapsedLabel={I18n.t('Expand individual button settings')}
-        expandedLabel={I18n.t('Collapse individual button settings')}
         defaultExpanded={true}
         includeSeparator={false}
       >

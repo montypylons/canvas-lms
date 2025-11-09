@@ -314,6 +314,9 @@ Rails/OutputSafety:
 Rails/RakeEnvironment:
   Severity: convention
   AutoCorrect: false
+Rails/StrongParametersExpect:
+  Severity: convention
+  AutoCorrect: false
 Rails/TimeZoneAssignment:
   Severity: convention
 
@@ -370,7 +373,7 @@ RSpec/NotToNot:
 RSpec/OverwritingSetup:
   Severity: convention
 RSpec/PendingWithoutReason:
-  Severity: convention
+  Severity: error
 RSpec/PredicateMatcher:
   Enabled: false
   AutoCorrect: false

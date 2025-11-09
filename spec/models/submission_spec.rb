@@ -6001,7 +6001,7 @@ describe Submission do
     context "canvadocs_submissions records" do
       before(:once) do
         @student1, @student2 = n_students_in_course(2)
-        @attachment = crocodocable_attachment_model(context: @student1)
+        @attachment = canvadocable_attachment_model(context: @student1)
         @assignment = @course.assignments.create! name: "A1",
                                                   submission_types: "online_upload"
       end
@@ -6026,8 +6026,7 @@ describe Submission do
           job = Delayed::Job.where(strand: "canvadocs").last
           expect(job.payload_object.kwargs[:preferred_plugins]).to eq [
             Canvadocs::RENDER_PDFJS,
-            Canvadocs::RENDER_BOX,
-            Canvadocs::RENDER_CROCODOC
+            Canvadocs::RENDER_BOX
           ]
         end
 
@@ -6042,8 +6041,7 @@ describe Submission do
           expect(job.payload_object.kwargs[:preferred_plugins]).to eq [
             Canvadocs::RENDER_O365,
             Canvadocs::RENDER_PDFJS,
-            Canvadocs::RENDER_BOX,
-            Canvadocs::RENDER_CROCODOC
+            Canvadocs::RENDER_BOX
           ]
         end
       end
@@ -6296,6 +6294,28 @@ describe Submission do
                                          })
           expect(submission.submission_comments.last).to be_hidden
         end
+
+        it "shows the comment if posted_comments_at is set on the submission" do
+          submission.update!(posted_comments_at: Time.zone.now)
+
+          Submission.process_bulk_update(@progress, @course, nil, @teacher, {
+                                           manual_assignment.id.to_s => {
+                                             @u1.id => { text_comment: "comment visible via posted_comments_at" }
+                                           }
+                                         })
+          expect(submission.submission_comments.last).not_to be_hidden
+        end
+
+        it "leaves the comment hidden if neither posted_at nor posted_comments_at is set" do
+          submission.update!(posted_at: nil, posted_comments_at: nil)
+
+          Submission.process_bulk_update(@progress, @course, nil, @teacher, {
+                                           manual_assignment.id.to_s => {
+                                             @u1.id => { text_comment: "fully hidden comment" }
+                                           }
+                                         })
+          expect(submission.submission_comments.last).to be_hidden
+        end
       end
     end
 
@@ -6515,12 +6535,6 @@ describe Submission do
 
     it "returns nil when the user is not present" do
       expect(@submission.moderated_grading_allow_list(nil)).to be_nil
-    end
-
-    it "can be passed a collection of attachments for checking if crocodoc is available" do
-      attachment = double
-      expect(attachment).to receive(:crocodoc_available?).and_return(true)
-      @submission.moderated_grading_allow_list(loaded_attachments: [attachment])
     end
 
     it "returns a collection of moderated grading ids" do
@@ -7087,6 +7101,78 @@ describe Submission do
                                                                                })
 
         expect(submission.visible_rubric_assessments_for(assessing_student)).to include(peer_review_assessment)
+      end
+    end
+
+    context "when posted_comments_at is set but posted_at is not" do
+      before(:once) do
+        @assignment.post_policy.update!(post_manually: true)
+        @viewing_user = @student
+        @submission.update!(posted_comments_at: Time.zone.now)
+
+        # Add data with points to the assessments
+        @teacher_assessment.update!(
+          score: 8.5,
+          data: [
+            { criterion_id: "crit1", points: 5, comments: "Good work on this part" },
+            { criterion_id: "crit2", points: 3.5, comments: "Needs improvement here" }
+          ]
+        )
+        @student_assessment.update!(
+          score: 7.0,
+          data: [
+            { criterion_id: "crit1", points: 4, comments: "Self assessment comment" },
+            { criterion_id: "crit2", points: 3, comments: "I think I did okay" }
+          ]
+        )
+      end
+
+      it "returns rubric assessments with points stripped" do
+        assessments = @submission.visible_rubric_assessments_for(@viewing_user)
+        expect(assessments.length).to eq(2)
+
+        assessments.each do |assessment|
+          expect(assessment.score).to be_nil
+          expect(assessment.data).to be_present
+          assessment.data.each do |rating|
+            expect(rating[:points]).to be_nil
+          end
+        end
+      end
+
+      it "preserves comments in the assessment data" do
+        assessments = @submission.visible_rubric_assessments_for(@viewing_user)
+        teacher_assessment = assessments.find { |a| a.assessor_id == @teacher.id }
+
+        expect(teacher_assessment.data[0][:comments]).to eq("Good work on this part")
+        expect(teacher_assessment.data[1][:comments]).to eq("Needs improvement here")
+      end
+
+      it "preserves the assessment ID" do
+        assessments = @submission.visible_rubric_assessments_for(@viewing_user)
+        teacher_assessment = assessments.find { |a| a.assessor_id == @teacher.id }
+
+        expect(teacher_assessment.id).to eq(@teacher_assessment.id)
+      end
+
+      it "does not modify the original assessment object" do
+        original_score = @teacher_assessment.score
+        original_data = @teacher_assessment.data.deep_dup
+
+        @submission.visible_rubric_assessments_for(@viewing_user)
+
+        @teacher_assessment.reload
+        expect(@teacher_assessment.score).to eq(original_score)
+        expect(@teacher_assessment.data[0][:points]).to eq(original_data[0][:points])
+      end
+
+      it "preserves other assessment attributes" do
+        assessments = @submission.visible_rubric_assessments_for(@viewing_user)
+        teacher_assessment = assessments.find { |a| a.assessor_id == @teacher.id }
+
+        expect(teacher_assessment.assessor_id).to eq(@teacher.id)
+        expect(teacher_assessment.user_id).to eq(@assessed_user.id)
+        expect(teacher_assessment.rubric_id).to eq(@rubric.id)
       end
     end
 
@@ -9737,6 +9823,83 @@ describe Submission do
       end
     end
 
+    describe "#comments_posted?" do
+      it "returns false when neither posted_at nor posted_comments_at are set" do
+        expect(submission).not_to be_comments_posted
+      end
+
+      it "returns true when posted_at is set" do
+        submission.update!(posted_at: Time.zone.now)
+        expect(submission).to be_comments_posted
+      end
+
+      it "returns true when posted_comments_at is set" do
+        submission.update!(posted_comments_at: Time.zone.now)
+        expect(submission).to be_comments_posted
+      end
+
+      it "returns true when both posted_at and posted_comments_at are set" do
+        submission.update!(posted_at: Time.zone.now, posted_comments_at: Time.zone.now)
+        expect(submission).to be_comments_posted
+      end
+    end
+
+    describe "#hide_comments_from_student?" do
+      context "when assignment posts manually" do
+        before do
+          @assignment.ensure_post_policy(post_manually: true)
+        end
+
+        it "returns true when neither posted_at nor posted_comments_at are set" do
+          expect(submission.hide_comments_from_student?).to be true
+        end
+
+        it "returns false when posted_at is set" do
+          submission.update!(posted_at: Time.zone.now)
+          expect(submission.hide_comments_from_student?).to be false
+        end
+
+        it "returns false when posted_comments_at is set" do
+          submission.update!(posted_comments_at: Time.zone.now)
+          expect(submission.hide_comments_from_student?).to be false
+        end
+
+        it "returns false when both posted_at and posted_comments_at are set" do
+          submission.update!(posted_at: Time.zone.now, posted_comments_at: Time.zone.now)
+          expect(submission.hide_comments_from_student?).to be false
+        end
+      end
+
+      context "when assignment posts automatically" do
+        before do
+          @assignment.ensure_post_policy(post_manually: false)
+        end
+
+        it "returns true when submission is graded but not posted" do
+          submission.update!(score: 10, workflow_state: "graded")
+          expect(submission.hide_comments_from_student?).to be true
+        end
+
+        it "returns false when submission is graded and posted" do
+          submission.update!(score: 10, workflow_state: "graded", posted_at: Time.zone.now)
+          expect(submission.hide_comments_from_student?).to be false
+        end
+
+        it "returns true when submission is resubmitted but not posted" do
+          resubmission = @assignment.submit_homework(@student, body: "frd")
+          resubmission.update!(score: 10, workflow_state: "graded", posted_at: Time.zone.now)
+          resubmission = @assignment.submit_homework(@student, body: "frd")
+          resubmission.update!(posted_at: nil)
+          expect(resubmission.hide_comments_from_student?).to be true
+        end
+
+        it "returns false when submission is ungraded" do
+          submission.update!(workflow_state: "submitted", score: nil, grade: nil)
+          expect(submission.hide_comments_from_student?).to be false
+        end
+      end
+    end
+
     describe "#handle_posted_at_changed" do
       describe "when an student that is also admin posts an submission" do
         it "unmutes the assignment if all submissions are now posted" do
@@ -10610,6 +10773,57 @@ describe Submission do
         expect(SubmissionText).not_to receive(:upsert_all)
 
         @submission.send(:extract_text)
+      end
+    end
+  end
+
+  describe "#skip_broadcasts" do
+    let(:submission) { @assignment.submissions.find_by(user: @student) }
+
+    context "when super method would return true" do
+      before do
+        @assignment.update!(
+          submission_types: "online_upload",
+          title: "Regular Assignment"
+        )
+
+        submission.skip_broadcasts = true
+      end
+
+      it "returns true regardless of rollcall assignment status" do
+        expect(submission.skip_broadcasts).to be true
+      end
+    end
+
+    context "when super method would return false" do
+      context "and assignment is rollcall" do
+        before do
+          @assignment.update!(
+            submission_types: "external_tool",
+            title: "Roll Call Attendance"
+          )
+
+          submission.skip_broadcasts = false
+        end
+
+        it "returns true because of rollcall assignment" do
+          expect(submission.skip_broadcasts).to be true
+        end
+      end
+
+      context "and assignment is not rollcall" do
+        before do
+          @assignment.update!(
+            submission_types: "online_upload",
+            title: "Regular Assignment"
+          )
+
+          submission.skip_broadcasts = false
+        end
+
+        it "returns false when both conditions are false" do
+          expect(submission.skip_broadcasts).to be false
+        end
       end
     end
   end

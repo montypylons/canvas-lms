@@ -31,7 +31,6 @@ class AssignmentsController < ApplicationController
   include Api::V1::ContextModule
   include Api::V1::Rubric
   include Api::V1::RubricAssociation
-  include AssetProcessorReportHelper
 
   include KalturaHelper
   include ObserverEnrollmentsHelper
@@ -78,7 +77,7 @@ class AssignmentsController < ApplicationController
         set_tutorial_js_env
         set_section_list_js_env
         grading_standard = @context.grading_standard_or_default
-        assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+        assign_to_tags = @context.account.allow_assign_to_differentiation_tags?
         hash = {
           ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
           CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
@@ -167,6 +166,7 @@ class AssignmentsController < ApplicationController
              points_based: grading_standard.points_based?,
              scaling_factor: grading_standard.scaling_factor,
              enhanced_rubrics_enabled: @context.feature_enabled?(:enhanced_rubrics),
+             course_pacing_enabled: @context.enable_course_paces,
            })
 
     if peer_review_mode_enabled
@@ -237,9 +237,6 @@ class AssignmentsController < ApplicationController
              ORIGINALITY_REPORTS_FOR_A2: Account.site_admin.feature_enabled?(:originality_reports_for_a2),
              PREREQS: assignment_prereqs,
              SUBMISSION_ID: graphql_submission_id,
-             ASSET_REPORTS: asset_reports(submission:),
-             ASSET_PROCESSORS: asset_processors(assignment: @assignment),
-             ASSIGNMENT_NAME: @assignment.title
            })
     css_bundle :assignments_2_student
     js_bundle :assignments_show_student
@@ -358,7 +355,7 @@ class AssignmentsController < ApplicationController
           end
         end
 
-        assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+        assign_to_tags = @context.account.allow_assign_to_differentiation_tags?
 
         env = js_env({
                        COURSE_ID: @context.id,
@@ -369,7 +366,9 @@ class AssignmentsController < ApplicationController
                        POST_TO_SIS: Assignment.sis_grade_export_enabled?(@context),
                        DUE_DATE_REQUIRED_FOR_ACCOUNT: AssignmentUtil.due_date_required_for_account?(@context),
                        ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
-                       CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+                       CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
+                       PEER_REVIEW_ALLOCATION_ENABLED: @context.feature_enabled?(:peer_review_allocation),
+                       CAN_EDIT_ASSIGNMENTS: @context.grants_right?(@current_user, session, :manage_assignments_edit)
                      })
         set_section_list_js_env
         submission = @assignment.submissions.find_by(user: @current_user)
@@ -452,7 +451,7 @@ class AssignmentsController < ApplicationController
           return
         end
 
-        if @context.root_account.feature_enabled?(:assignment_enhancements_teacher_view) &&
+        if @context.feature_enabled?(:assignment_enhancements_teacher_view) &&
            can_do(@context, @current_user, :read_as_admin)
           css_bundle :assignment_enhancements_teacher_view
           js_bundle :assignments_show_teacher
@@ -876,7 +875,7 @@ class AssignmentsController < ApplicationController
 
       post_to_sis = Assignment.sis_grade_export_enabled?(@context)
 
-      assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+      assign_to_tags = @context.account.allow_assign_to_differentiation_tags?
 
       hash = {
         ROOT_FOLDER_ID: Folder.root_folders(@context).first&.id,
@@ -919,7 +918,8 @@ class AssignmentsController < ApplicationController
           Account.site_admin.feature_enabled?(:grading_scheme_updates),
         ARCHIVED_GRADING_SCHEMES_ENABLED: Account.site_admin.feature_enabled?(:archived_grading_schemes),
         OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
-        PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED: @context.feature_enabled?(:peer_review_allocation_and_grading)
+        PEER_REVIEW_ALLOCATION_ENABLED: @context.feature_enabled?(:peer_review_allocation),
+        PEER_REVIEW_GRADING_ENABLED: @context.feature_enabled?(:peer_review_grading)
       }
 
       if @context.root_account.feature_enabled?(:instui_nav)

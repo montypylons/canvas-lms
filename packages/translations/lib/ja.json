@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "画像を消す"
     },
-    "clear_selected_file_82388e50": {
-        "message": "選択したファイルを消去する"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "選択されたファイルを削除：{ filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "クリックまたはシフトクリックでHTMLエディタに移動します。"
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "クラブ(1組)"
+    },
+    "collab_575ac7bc": {
+        "message": "コラボ"
     },
     "collaborations_5c56c15f": {
         "message": "コラボレーション"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "ラトビア語"
     },
+    "learn_ad3b3505": {
+        "message": "学習する"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "隣接リンクの詳細"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "演算子"
     },
+    "options_3ab0ea65": {
+        "message": "オプション"
+    },
     "or_9b70ccaa": {
         "message": "または"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "ファイル名を入力してください"
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "サポートされているプラットフォームから有効な動画URLを入力してください。"
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "サポートされているタイプのファイルを選択してください"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "宗教学のアイコン"
     },
+    "remove_f47dc62a": {
+        "message": "削除"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "{ filename }を削除する"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "見出しスタイルを削除する"
     },
     "remove_link_d1f2f4d0": {
         "message": "リンクの削除"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Studio メディアを削除する"
     },
     "replace_all_d3d68b3": {
         "message": "すべて置換する"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "あなたのビデオのブラウザ内のタイトルは正しいものですが、データベース内でそれを更新できませんでした。"
     },
+    "thumbnail_e0de666f": {
+        "message": "サムネイル"
+    },
     "timebar_a4d18443": {
         "message": "タイムバー"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "{ title }のビデオプレーヤー"
     },
+    "video_url_889d3263": {
+        "message": "動画 URL"
+    },
     "vietnamese_e7a76583": {
         "message": "ベトナム語"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "あなたのウェブカメラは既に使用中かもしれません。"
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "YouTube埋め込みURL"
     },
     "zeta_5ef24f0e": {
         "message": "ゼータ"

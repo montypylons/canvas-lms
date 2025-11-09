@@ -103,6 +103,7 @@ const ZSubmission = z
     secondsLate: z.number().nullable(),
     state: ZSubmissionState,
     sticker: z.string().nullable(),
+    hasSubAssignmentSubmissions: z.boolean(),
     subAssignmentSubmissions: z.array(ZSubAssignmentSubmission).nullable(),
     submissionType: ZSubmissionType.nullable(),
     submittedAt: z.string().nullable(),
@@ -140,6 +141,7 @@ const nodeFields = [
   'gradingPeriodId',
   'hasOriginalityReport',
   'hasPostableComments',
+  'hasSubAssignmentSubmissions',
   'late',
   'latePolicyStatus',
   'missing',
@@ -239,7 +241,7 @@ export const getSubmissions = async (
   const query = buildGraphQLQuery(
     [courseNode],
     'query',
-    'getSubmissions',
+    'Gradebook__GetSubmissions',
     '$courseId: ID!, $states: [SubmissionState!]',
   )
   const data = await executeQuery<GetSubmissionsResult>(

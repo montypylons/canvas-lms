@@ -100,6 +100,26 @@ describe Types::AssignmentType do
     end
   end
 
+  describe "hasPlagiarismTool" do
+    it "returns true when assignment has a plagiarism tool configured" do
+      tool = course.context_external_tools.create!(
+        name: "Plagiarism Tool",
+        url: "http://example.com",
+        consumer_key: "key",
+        shared_secret: "secret"
+      )
+      assignment.assignment_configuration_tool_lookups.create!(
+        tool:,
+        tool_type: "ContextExternalTool"
+      )
+      expect(assignment_type.resolve("hasPlagiarismTool")).to be true
+    end
+
+    it "returns false when assignment has no plagiarism tool configured" do
+      expect(assignment_type.resolve("hasPlagiarismTool")).to be false
+    end
+  end
+
   describe "gradeAsGroup" do
     it "returns true for group assignments being graded as group" do
       assignment.update!(group_category: course.group_categories.create!(name: "My Category"))
@@ -855,12 +875,30 @@ describe Types::AssignmentType do
     let(:student) { course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user }
     let(:teacher) { course.enroll_user(User.create!, "TeacherEnrollment", enrollment_state: "active").user }
 
+    before do
+      post_policy = assignment.post_policy
+      post_policy.update!(post_manually: true)
+      @scheduled_post = ScheduledPost.new(
+        assignment:,
+        post_policy:,
+        root_account_id: assignment.root_account_id,
+        post_comments_at: 2.days.from_now,
+        post_grades_at: 2.days.from_now
+      )
+      @scheduled_post.save!
+    end
+
     context "when user has manage_grades permission" do
       let(:context) { { current_user: teacher } }
 
       it "returns the PostPolicy related to the assignment" do
         resolver = GraphQLTypeTester.new(assignment, context)
         expect(resolver.resolve("postPolicy {_id}").to_i).to eql assignment.post_policy.id
+      end
+
+      it "returns the ScheduledPost when it exists" do
+        resolver = GraphQLTypeTester.new(assignment, context)
+        expect(resolver.resolve("scheduledPost { _id }")).to eq @scheduled_post.id.to_s
       end
     end
 
@@ -871,6 +909,11 @@ describe Types::AssignmentType do
         resolver = GraphQLTypeTester.new(assignment, context)
         expect(resolver.resolve("postPolicy {_id}")).to be_nil
       end
+
+      it "returns null in place of the ScheduledPost" do
+        resolver = GraphQLTypeTester.new(assignment, context)
+        expect(resolver.resolve("scheduledPost { _id }")).to be_nil
+      end
     end
   end
 
@@ -879,6 +922,7 @@ describe Types::AssignmentType do
     let(:course) { Course.create!(workflow_state: "available") }
     let(:student) { course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user }
     let(:teacher) { course.enroll_user(User.create!, "TeacherEnrollment", enrollment_state: "active").user }
+    let(:observer) { course.enroll_user(User.create!, "ObserverEnrollment", enrollment_state: "active", associated_user_id: student.id).user }
 
     context "when lti_asset_processor feature flag is disabled" do
       before { course.root_account.disable_feature!(:lti_asset_processor) }
@@ -906,27 +950,20 @@ describe Types::AssignmentType do
       end
     end
 
-    context "when user does not have manage_grades permission" do
-      let(:context) { { current_user: student } }
-      let!(:asset_processor) { lti_asset_processor_model(assignment:) }
+    context "when user is an observer" do
+      let(:context) { { current_user: observer } }
 
-      context "when student can read their own grade" do
-        it "returns lti asset processors" do
-          allow_any_instance_of(Submission).to receive(:user_can_read_grade?).with(student, for_plagiarism: true).and_return(true)
-
-          resolver = GraphQLTypeTester.new(assignment, context)
-          result = resolver.resolve("ltiAssetProcessorsConnection { edges { node { _id } } }")
-          expect(result).to eq([asset_processor.id.to_s])
-        end
+      it "returns lti asset processors" do
+        asset_processor = lti_asset_processor_model(assignment:)
+        resolver = GraphQLTypeTester.new(assignment, context)
+        result = resolver.resolve("ltiAssetProcessorsConnection { edges { node { _id } } }")
+        expect(result).to eq([asset_processor.id.to_s])
       end
 
-      context "when student cannot read their own grade" do
-        it "returns null" do
-          allow_any_instance_of(Submission).to receive(:user_can_read_grade?).with(student, for_plagiarism: true).and_return(false)
-
-          resolver = GraphQLTypeTester.new(assignment, context)
-          expect(resolver.resolve("ltiAssetProcessorsConnection { edges { node { _id } } }")).to be_nil
-        end
+      it "returns empty collection when no asset processors exist" do
+        resolver = GraphQLTypeTester.new(assignment, context)
+        result = resolver.resolve("ltiAssetProcessorsConnection { edges { node { _id } } }")
+        expect(result).to eq([])
       end
     end
   end
@@ -1608,6 +1645,28 @@ describe Types::AssignmentType do
       expect(resolver.resolve("moduleItems { content { type } }")).to eq ["Assignment", "Assignment"]
       expect(resolver.resolve("moduleItems { module { _id } }")).to eq [module_1.id.to_s, module_2.id.to_s]
     end
+
+    it "returns nil for module_items when quiz is nil (CNVS-15477)" do
+      orphaned_quiz = course.assignments.create!(title: "orphaned quiz")
+      orphaned_quiz.update_column(:submission_types, "online_quiz")
+
+      expect(orphaned_quiz.submission_types).to eq "online_quiz"
+      expect(orphaned_quiz.quiz).to be_nil
+
+      resolver = GraphQLTypeTester.new(orphaned_quiz, current_user: teacher)
+      expect(resolver.resolve("moduleItems { id }")).to be_nil
+    end
+
+    it "returns nil for module_items when discussion_topic is nil" do
+      orphaned_discussion = course.assignments.create!(title: "orphaned discussion")
+      orphaned_discussion.update_column(:submission_types, "discussion_topic")
+
+      expect(orphaned_discussion.submission_types).to eq "discussion_topic"
+      expect(orphaned_discussion.discussion_topic).to be_nil
+
+      resolver = GraphQLTypeTester.new(orphaned_discussion, current_user: teacher)
+      expect(resolver.resolve("moduleItems { id }")).to be_nil
+    end
   end
 
   describe "assigned_students" do
@@ -1660,6 +1719,92 @@ describe Types::AssignmentType do
       result = resolver.resolve("assignedStudents { nodes { _id } }")
       expect(result).to eq [student2.id.to_s]
       expect(result).not_to include(student.id.to_s)
+    end
+
+    describe "assigned_students with peer review status" do
+      before(:once) do
+        @peer_review_course = course_factory(active_all: true)
+        @peer_review_teacher = teacher_in_course(active_all: true, course: @peer_review_course).user
+        @peer_review_assignment = @peer_review_course.assignments.create!(
+          title: "Peer Review Assignment",
+          points_possible: 10,
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+        @student1 = student_in_course(course: @peer_review_course, name: "Student One", active_all: true).user
+        @student2 = student_in_course(course: @peer_review_course, name: "Student Two", active_all: true).user
+
+        @peer_review_course.enable_feature!(:peer_review_allocation)
+
+        AllocationRule.create!(
+          assignment: @peer_review_assignment,
+          course: @peer_review_course,
+          assessor: @student1,
+          assessee: @student2,
+          must_review: true
+        )
+
+        submission1 = @peer_review_assignment.submit_homework(@student1, {
+                                                                submission_type: "online_text_entry",
+                                                                body: "Student 1 submission"
+                                                              })
+        submission2 = @peer_review_assignment.submit_homework(@student2, {
+                                                                submission_type: "online_text_entry",
+                                                                body: "Student 2 submission"
+                                                              })
+        AssessmentRequest.create!(
+          asset: submission2,
+          assessor_asset: submission1,
+          user: @student2,
+          assessor: @student1,
+          workflow_state: "completed"
+        )
+      end
+
+      let(:peer_review_assignment_type) { GraphQLTypeTester.new(@peer_review_assignment, current_user: @peer_review_teacher) }
+
+      it "includes peer review status for assigned students" do
+        must_review_count = peer_review_assignment_type.resolve("assignedStudents { nodes { peerReviewStatus { mustReviewCount } } }")
+        expect(must_review_count.length).to eq(2)
+        expect(must_review_count.sort).to eq([0, 1])
+
+        completed_reviews_count = peer_review_assignment_type.resolve("assignedStudents { nodes { peerReviewStatus { completedReviewsCount } } }")
+        expect(completed_reviews_count.sort).to eq([0, 1])
+      end
+
+      it "returns nil for peer review status when user lacks grade permission" do
+        student_assignment_type = GraphQLTypeTester.new(@peer_review_assignment, current_user: @student1)
+
+        result = student_assignment_type.resolve("assignedStudents { nodes { peerReviewStatus { mustReviewCount } } }")
+        expect(result).to be_nil
+      end
+
+      it "returns nil for peer review status when feature is disabled" do
+        @peer_review_course.disable_feature!(:peer_review_allocation)
+
+        result = peer_review_assignment_type.resolve("assignedStudents { nodes { peerReviewStatus { mustReviewCount } } }")
+
+        # Should still return students but with nil peer review status
+        expect(result.length).to eq(2)
+        expect(result).to all(be_nil)
+      end
+
+      it "returns nil for peer review status when peer reviews are disabled" do
+        @peer_review_assignment.update!(peer_reviews: false)
+
+        result = peer_review_assignment_type.resolve("assignedStudents { nodes { peerReviewStatus { mustReviewCount } } }")
+
+        # Should still return students but with nil peer review status
+        expect(result.length).to eq(2)
+        expect(result).to all(be_nil)
+      end
+
+      it "filters students with search term and maintains peer review status" do
+        result = peer_review_assignment_type.resolve("assignedStudents (filter: { searchTerm: \"Student One\" }) { edges { node { peerReviewStatus { mustReviewCount } } } }")
+
+        expect(result.length).to eq(1)
+        expect(result.first).to eq(1)
+      end
     end
   end
 
@@ -1901,7 +2046,7 @@ describe Types::AssignmentType do
     end
   end
 
-  describe "allocation_rules_connection" do
+  describe "allocation_rules" do
     let(:assignment_with_peer_reviews) do
       course.assignments.create!(
         title: "Peer Review Assignment",
@@ -1919,7 +2064,7 @@ describe Types::AssignmentType do
     let(:observer) { observer_in_course(course:, active_all: true).user }
 
     before do
-      course.enable_feature!(:peer_review_allocation_and_grading)
+      course.enable_feature!(:peer_review_allocation)
 
       @allocation_rule_1 = AllocationRule.create!(
         course:,
@@ -1940,6 +2085,7 @@ describe Types::AssignmentType do
         review_permitted: true,
         applies_to_assessor: true
       )
+
       @teacher_assignment_type = GraphQLTypeTester.new(assignment_with_peer_reviews, current_user: teacher)
       @ta_assignment_type = GraphQLTypeTester.new(assignment_with_peer_reviews, current_user: ta)
       @student_assignment_type = GraphQLTypeTester.new(assignment_with_peer_reviews, current_user: student1)
@@ -1947,56 +2093,68 @@ describe Types::AssignmentType do
     end
 
     context "when user has grading permissions" do
-      it "returns allocation rules connection for teachers" do
-        result = @teacher_assignment_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+      it "returns allocation rules for teachers" do
+        result = @teacher_assignment_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to eq([@allocation_rule_1.id.to_s, @allocation_rule_2.id.to_s])
       end
 
+      it "returns allocation rules count for teachers" do
+        result = @teacher_assignment_type.resolve("allocationRules { count }")
+        expect(result).to eq 2
+      end
+
       it "allows access to nested assessor and assessee information" do
-        assessors = @teacher_assignment_type.resolve("allocationRulesConnection { nodes { assessor { _id } } }")
-        assessees = @teacher_assignment_type.resolve("allocationRulesConnection { nodes { assessee { _id } } }")
+        assessors = @teacher_assignment_type.resolve("allocationRules { rulesConnection { nodes { assessor { _id } } } }")
+        assessees = @teacher_assignment_type.resolve("allocationRules { rulesConnection { nodes { assessee { _id } } } }")
 
         expect(assessors).to eq([@allocation_rule_1.assessor.id.to_s, @allocation_rule_2.assessor.id.to_s])
         expect(assessees).to eq([@allocation_rule_1.assessee.id.to_s, @allocation_rule_2.assessee.id.to_s])
       end
 
       it "allows TAs with grading permissions to access allocation rules" do
-        result = @ta_assignment_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+        result = @ta_assignment_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to eq([@allocation_rule_1.id.to_s, @allocation_rule_2.id.to_s])
       end
 
-      it "paginates results" do
-        expect(@teacher_assignment_type.resolve("allocationRulesConnection (first: 1) { edges { node { _id } } }").length).to eq 1
-        expect(@teacher_assignment_type.resolve("allocationRulesConnection (first: 1) { pageInfo { hasNextPage } }")).to be true
-        expect(@teacher_assignment_type.resolve("allocationRulesConnection (first: 2) { edges { node { _id } } }").length).to eq 2
-        expect(@teacher_assignment_type.resolve("allocationRulesConnection (first: 2) { pageInfo { hasNextPage } }")).to be false
+      it "returns 0 when there are no allocation rules" do
+        AllocationRule.destroy_all
+        result = @teacher_assignment_type.resolve("allocationRules { count }")
+        expect(result).to eq 0
+      end
+
+      it "only counts active allocation rules" do
+        @allocation_rule_1.destroy
+        result = @teacher_assignment_type.resolve("allocationRules { count }")
+        expect(result).to eq 1
+      end
+
+      it "paginates rules connection results" do
+        expect(@teacher_assignment_type.resolve("allocationRules { rulesConnection(first: 1) { edges { node { _id } } } }").length).to eq 1
+        expect(@teacher_assignment_type.resolve("allocationRules { rulesConnection(first: 1) { pageInfo { hasNextPage } } }")).to be true
+        expect(@teacher_assignment_type.resolve("allocationRules { rulesConnection(first: 2) { edges { node { _id } } } }").length).to eq 2
+        expect(@teacher_assignment_type.resolve("allocationRules { rulesConnection(first: 2) { pageInfo { hasNextPage } } }")).to be false
       end
     end
 
     context "when user lacks grading permissions" do
       it "returns nil for students" do
-        result = @student_assignment_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+        result = @student_assignment_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to be_nil
       end
 
       it "returns nil for observers" do
-        result = @observer_assignment_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+        result = @observer_assignment_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to be_nil
       end
     end
 
     context "when feature flag is disabled" do
       before do
-        course.disable_feature!(:peer_review_allocation_and_grading)
+        course.disable_feature!(:peer_review_allocation)
       end
 
       it "returns nil even for teachers" do
-        result = @teacher_assignment_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+        result = @teacher_assignment_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to be_nil
       end
     end
@@ -2013,8 +2171,7 @@ describe Types::AssignmentType do
 
       it "returns nil even for teachers" do
         peer_reviews_disabled_type = GraphQLTypeTester.new(assignment_without_peer_reviews, current_user: teacher)
-        result = peer_reviews_disabled_type.resolve("allocationRulesConnection { nodes { _id } }")
-
+        result = peer_reviews_disabled_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
         expect(result).to be_nil
       end
     end
@@ -2029,22 +2186,274 @@ describe Types::AssignmentType do
         )
       end
 
-      it "returns empty connection" do
+      it "returns empty connection but valid count" do
         empty_type = GraphQLTypeTester.new(empty_assignment, current_user: teacher)
-        result = empty_type.resolve("allocationRulesConnection { nodes { _id } }")
+        result = empty_type.resolve("allocationRules { rulesConnection { nodes { _id } } }")
+        count_result = empty_type.resolve("allocationRules { count }")
 
         expect(result).to be_empty
+        expect(count_result).to eq 0
       end
     end
 
     context "with deleted allocation rules" do
       it "only returns active allocation rules" do
         AllocationRule.first.destroy
-        result = @teacher_assignment_type.resolve("allocationRulesConnection { nodes { workflowState } }")
+        result = @teacher_assignment_type.resolve("allocationRules { rulesConnection { nodes { workflowState } } }")
+        count_result = @teacher_assignment_type.resolve("allocationRules { count }")
 
         expect(result.size).to eq 1
         expect(result.first).to eq "active"
+        expect(count_result).to eq 1
       end
+    end
+
+    context "search functionality" do
+      before do
+        @search_assignment = course.assignments.create!(
+          title: "Search Test Assignment",
+          points_possible: 10,
+          submission_types: ["online_text_entry"],
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+
+        @frodo = student_in_course(course:, name: "Frodo Baggins", active_all: true).user
+        @legolas = student_in_course(course:, name: "Legolas Greenleaf", active_all: true).user
+        @bilbo = student_in_course(course:, name: "Bilbo Baggins", active_all: true).user
+        @sam = student_in_course(course:, name: "Samwise Gamgee", active_all: true).user
+
+        @rule_frodo_legolas = AllocationRule.create!(
+          course:,
+          assignment: @search_assignment,
+          assessor: @frodo,
+          assessee: @legolas,
+          must_review: true,
+          review_permitted: true,
+          applies_to_assessor: true
+        )
+
+        @rule_legolas_bilbo = AllocationRule.create!(
+          course:,
+          assignment: @search_assignment,
+          assessor: @legolas,
+          assessee: @bilbo,
+          must_review: true,
+          review_permitted: true,
+          applies_to_assessor: true
+        )
+
+        @rule_bilbo_sam = AllocationRule.create!(
+          course:,
+          assignment: @search_assignment,
+          assessor: @bilbo,
+          assessee: @sam,
+          must_review: true,
+          review_permitted: true,
+          applies_to_assessor: true
+        )
+
+        @search_teacher_assignment_type = GraphQLTypeTester.new(@search_assignment, current_user: teacher)
+        @search_student_assignment_type = GraphQLTypeTester.new(@search_assignment, current_user: student1)
+      end
+
+      it "returns rules for specific assessor name" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Frodo" }) { nodes { _id } } }'
+        )
+        expect(result).to contain_exactly(@rule_frodo_legolas.id.to_s)
+      end
+
+      it "returns rules for specific assessee name" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Bilbo" }) { nodes { _id } } }'
+        )
+        expect(result).to contain_exactly(@rule_legolas_bilbo.id.to_s, @rule_bilbo_sam.id.to_s)
+      end
+
+      it "returns rules matching full name" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Legolas Greenleaf" }) { nodes { _id } } }'
+        )
+        expect(result).to contain_exactly(@rule_frodo_legolas.id.to_s, @rule_legolas_bilbo.id.to_s)
+      end
+
+      it "is case insensitive" do
+        result_lower = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "frodo" }) { nodes { _id } } }'
+        )
+        result_upper = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "FRODO" }) { nodes { _id } } }'
+        )
+        result_mixed = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "FrOdo" }) { nodes { _id } } }'
+        )
+
+        expect(result_lower).to eq([@rule_frodo_legolas.id.to_s])
+        expect(result_upper).to eq([@rule_frodo_legolas.id.to_s])
+        expect(result_mixed).to eq([@rule_frodo_legolas.id.to_s])
+      end
+
+      it "returns empty result for no matches" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "NonExistentName" }) { nodes { _id } } }'
+        )
+        expect(result).to be_empty
+      end
+
+      it "returns partial matches in names" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Baggins" }) { nodes { _id } } }'
+        )
+        expect(result).to contain_exactly(@rule_frodo_legolas.id.to_s, @rule_legolas_bilbo.id.to_s, @rule_bilbo_sam.id.to_s)
+      end
+
+      it "works with common prefixes" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Bag" }) { nodes { _id } } }'
+        )
+        expect(result).to contain_exactly(@rule_frodo_legolas.id.to_s, @rule_legolas_bilbo.id.to_s, @rule_bilbo_sam.id.to_s)
+      end
+
+      it "raises error for search term too short" do
+        expect do
+          @search_teacher_assignment_type.resolve(
+            'allocationRules { rulesConnection(filter: { searchTerm: "a" }) { nodes { _id } } }'
+          )
+        end.to raise_error(GraphQLTypeTester::Error, /search term must be at least/)
+      end
+
+      it "works with minimum valid search term length" do
+        min_length_term = "a" * SearchTermHelper::MIN_SEARCH_TERM_LENGTH
+        expect do
+          @search_teacher_assignment_type.resolve(
+            "allocationRules { rulesConnection(filter: { searchTerm: \"#{min_length_term}\" }) { nodes { _id } } }"
+          )
+        end.not_to raise_error
+      end
+
+      it "combines search with pagination" do
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Bilbo" }, first: 1) { nodes { _id } } }'
+        )
+        expect(result.length).to eq 1
+        expect([@rule_legolas_bilbo.id.to_s, @rule_bilbo_sam.id.to_s]).to include(result.first)
+
+        has_next_page = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Bilbo" }, first: 1) { pageInfo { hasNextPage } } }'
+        )
+        expect(has_next_page).to be true
+      end
+
+      it "excludes deleted rules from search results" do
+        @rule_frodo_legolas.destroy
+
+        result = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Frodo" }) { nodes { _id } } }'
+        )
+        expect(result).to be_empty
+
+        result_legolas = @search_teacher_assignment_type.resolve(
+          'allocationRules { rulesConnection(filter: { searchTerm: "Legolas" }) { nodes { _id } } }'
+        )
+        expect(result_legolas).to contain_exactly(@rule_legolas_bilbo.id.to_s)
+      end
+
+      it "returns all results when no search term provided" do
+        result_with_filter = @search_teacher_assignment_type.resolve(
+          "allocationRules { rulesConnection(filter: {}) { nodes { _id } } }"
+        )
+        result_without_filter = @search_teacher_assignment_type.resolve(
+          "allocationRules { rulesConnection { nodes { _id } } }"
+        )
+
+        expect(result_with_filter).to match_array([
+                                                    @rule_frodo_legolas.id.to_s,
+                                                    @rule_legolas_bilbo.id.to_s,
+                                                    @rule_bilbo_sam.id.to_s
+                                                  ])
+        expect(result_without_filter).to eq(result_with_filter)
+      end
+    end
+  end
+
+  describe "auto_grade_assignment_issues" do
+    before do
+      allow(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_assignment)
+        .with(assignment:)
+        .and_return({ level: "error", message: "Test error" })
+    end
+
+    it "returns nil when project_lhotse feature flag is disabled" do
+      course.disable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).not_to receive(:validate_assignment)
+      expect(assignment_type.resolve("autoGradeAssignmentIssues { level message }")).to be_nil
+    end
+
+    it "returns issues when project_lhotse feature flag is enabled" do
+      course.enable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_assignment)
+      level = assignment_type.resolve("autoGradeAssignmentIssues { level }")
+      message = assignment_type.resolve("autoGradeAssignmentIssues { message }")
+      expect(level).to eq "error"
+      expect(message).to eq "Test error"
+    end
+  end
+
+  describe "auto_grade_assignment_errors" do
+    before do
+      allow(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_assignment)
+        .with(assignment:)
+        .and_return({ level: "error", message: "Test error" })
+    end
+
+    it "returns empty array when project_lhotse feature flag is disabled" do
+      course.disable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).not_to receive(:validate_assignment)
+      expect(assignment_type.resolve("autoGradeAssignmentErrors")).to eq([])
+    end
+
+    it "returns error messages when project_lhotse feature flag is enabled" do
+      course.enable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_assignment)
+      expect(assignment_type.resolve("autoGradeAssignmentErrors")).to eq(["Test error"])
+    end
+  end
+
+  describe "allowProvisionalGrading" do
+    before(:once) do
+      @moderated_assignment = course.assignments.create!(
+        name: "moderated assignment",
+        moderated_grading: true,
+        grader_count: 2,
+        final_grader: teacher
+      )
+      @moderated_assignment.create_moderation_grader(teacher, occupy_slot: true)
+    end
+
+    let(:moderated_assignment_type) { GraphQLTypeTester.new(@moderated_assignment, current_user: teacher) }
+    let(:moderated_assignment_type_for_student) { GraphQLTypeTester.new(@moderated_assignment, current_user: student) }
+
+    it "returns 'allowed' for allowProvisionalGrading when user can be a moderated grader" do
+      expect(moderated_assignment_type.resolve("allowProvisionalGrading")).to eq "allowed"
+    end
+
+    it "returns 'not_allowed' for allowProvisionalGrading when user cannot be a moderated grader" do
+      expect(moderated_assignment_type_for_student.resolve("allowProvisionalGrading")).to eq "not_allowed"
+    end
+
+    it "returns 'not_applicable' for allowProvisionalGrading on non-moderated assignments" do
+      expect(teacher_assignment_type.resolve("allowProvisionalGrading")).to eq "not_applicable"
+    end
+
+    it "returns 'not_applicable' for allowProvisionalGrading after grades are published" do
+      @moderated_assignment.update!(grades_published_at: Time.zone.now)
+      expect(moderated_assignment_type.resolve("allowProvisionalGrading")).to eq "not_applicable"
+    end
+
+    it "returns 'not_applicable' for allowProvisionalGrading after grades are published (non-provisional grader)" do
+      @moderated_assignment.update!(grades_published_at: Time.zone.now)
+      expect(moderated_assignment_type_for_student.resolve("allowProvisionalGrading")).to eq "not_applicable"
     end
   end
 end

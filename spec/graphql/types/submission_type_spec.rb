@@ -725,6 +725,18 @@ describe Types::SubmissionType do
       ).to eq %w[MQ Mg Mw]
     end
 
+    it "can include up to 100 items" do
+      assignment = @course.assignments.create! name: "pagination test", points_possible: 10
+      100.times do |i|
+        assignment.submit_homework(@student, body: "Attempt #{i + 1}", submitted_at: (100 - i).hours.ago)
+      end
+
+      submissions = @student.submissions.find_by(assignment:)
+      submission_type = GraphQLTypeTester.new(submissions, current_user: @teacher, request: ActionDispatch::TestRequest.create)
+      result = submission_type.resolve("submissionHistoriesConnection(first: 100) { nodes { attempt } }")
+      expect(result.length).to eq(100)
+    end
+
     context "filter" do
       describe "states" do
         before(:once) do
@@ -1347,29 +1359,29 @@ describe Types::SubmissionType do
     let(:assignment) { @assignment }
     let(:submission) { @submission }
     let(:submission_type) { GraphQLTypeTester.new(submission, current_user:) }
-
-    before do
-      root_account.enable_feature!(:lti_asset_processor)
-      @lti_asset = lti_asset_model(submission:)
-      asset_processor = lti_asset_processor_model(assignment:)
-      @lti_asset_report = lti_asset_report_model(
-        lti_asset_processor_id: asset_processor.id,
-        asset: @lti_asset,
+    let(:lti_asset) { lti_asset_model(submission:) }
+    let(:lti_asset_processor) { lti_asset_processor_model(assignment:) }
+    let(:lti_asset_report) do
+      lti_asset_report_model(
+        lti_asset_processor_id: lti_asset_processor.id,
+        asset: lti_asset,
         visible_to_owner: true
       )
     end
+
+    before { lti_asset_report }
 
     context "when the current user is a teacher" do
       let(:current_user) { submission.assignment.context.instructors.first }
 
       it "returns LTI asset reports" do
         result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
-        expect(result).to eq [@lti_asset_report.id.to_s]
+        expect(result).to eq [lti_asset_report.id.to_s]
       end
 
       it "returns LTI asset reports when latest is false" do
         result = submission_type.resolve("ltiAssetReportsConnection(latest: false) { nodes { _id } }")
-        expect(result).to eq [@lti_asset_report.id.to_s]
+        expect(result).to eq [lti_asset_report.id.to_s]
       end
 
       it "returns nil when latest is true (not implemented yet)" do
@@ -1382,9 +1394,9 @@ describe Types::SubmissionType do
       let(:current_user) { @student }
 
       it "returns LTI asset reports" do
-        @lti_asset_report.update!(processing_progress: Lti::AssetReport::PROGRESS_PROCESSED)
+        lti_asset_report.update!(processing_progress: Lti::AssetReport::PROGRESS_PROCESSED)
         result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
-        expect(result).to eq [@lti_asset_report.id.to_s]
+        expect(result).to eq [lti_asset_report.id.to_s]
       end
 
       it "returns [] when there are reports, but not processed" do
@@ -1406,6 +1418,185 @@ describe Types::SubmissionType do
         result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
         expect(result).to be_nil
       end
+    end
+
+    context "when submission is a discussion_topic" do
+      let(:discussion_entry_version) do
+        @assignment.update!(submission_types: "discussion_topic")
+        @discussion_topic = @assignment.discussion_topic
+        @discussion_topic.discussion_entries.create!(user: @student, message: "I have a lot to say about this topic").discussion_entry_versions.first
+      end
+
+      let(:lti_asset) { lti_asset_model(submission:, discussion_entry_version:) }
+
+      context "when the current user is a teacher" do
+        let(:current_user) { assignment.context.instructors.first }
+
+        it "returns nil with feature flag disabled" do
+          root_account.disable_feature!(:lti_asset_processor_discussions)
+          result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
+          expect(result).to be_nil
+        end
+
+        it "returns LTI asset reports" do
+          result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
+          expect(result).to eq [lti_asset_report.id.to_s]
+        end
+      end
+
+      context "when the current user is a student" do
+        let(:current_user) { @student }
+
+        it "returns nil with feature flag disabled" do
+          root_account.disable_feature!(:lti_asset_processor_discussions)
+          lti_asset_report.update!(processing_progress: Lti::AssetReport::PROGRESS_PROCESSED)
+          result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
+          expect(result).to be_nil
+        end
+
+        it "returns LTI asset reports" do
+          lti_asset_report.update!(processing_progress: Lti::AssetReport::PROGRESS_PROCESSED)
+          result = submission_type.resolve("ltiAssetReportsConnection { nodes { _id } }")
+          expect(result).to eq [lti_asset_report.id.to_s]
+        end
+      end
+    end
+  end
+
+  describe "hasSubAssignmentSubmissions" do
+    before do
+      @checkpoint_assignment = @course.assignments.create!(
+        name: "checkpoint assignment",
+        has_sub_assignments: true
+      )
+      @sub_assignment = @checkpoint_assignment.sub_assignments.create!(
+        name: "sub assignment",
+        context: @course,
+        sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC,
+        points_possible: 5
+      )
+      @checkpoint_submission = @checkpoint_assignment.submissions.find_by!(user: @student)
+    end
+
+    it "returns true when assignment has active sub assignment submissions" do
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      expect(checkpoint_submission_type.resolve("hasSubAssignmentSubmissions")).to be true
+    end
+
+    it "returns false when assignment has no active sub assignment submissions" do
+      @sub_assignment.submissions.update_all(workflow_state: "deleted")
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      expect(checkpoint_submission_type.resolve("hasSubAssignmentSubmissions")).to be false
+    end
+
+    it "returns false for non-checkpoint assignments" do
+      expect(submission_type.resolve("hasSubAssignmentSubmissions")).to be false
+    end
+  end
+
+  describe "subAssignmentSubmissions" do
+    before do
+      @checkpoint_assignment = @course.assignments.create!(
+        name: "checkpoint assignment",
+        has_sub_assignments: true
+      )
+      @sub_assignment1 = @checkpoint_assignment.sub_assignments.create!(
+        name: "sub assignment 1",
+        context: @course,
+        sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC,
+        points_possible: 5
+      )
+      @sub_assignment2 = @checkpoint_assignment.sub_assignments.create!(
+        name: "sub assignment 2",
+        context: @course,
+        sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY,
+        points_possible: 5
+      )
+      @checkpoint_submission = @checkpoint_assignment.submissions.find_by!(user: @student)
+      @sub_submission1 = @sub_assignment1.find_or_create_submission(@student)
+      @sub_submission2 = @sub_assignment2.find_or_create_submission(@student)
+    end
+
+    it "returns sub assignment submissions when they exist" do
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { assignmentId }")
+      expect(result).to contain_exactly(@sub_assignment1.id.to_s, @sub_assignment2.id.to_s)
+    end
+
+    it "does not return sub assignment submissions with deleted workflow state" do
+      @sub_submission2.update(workflow_state: "deleted")
+
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { assignmentId }")
+      expect(result).to eq [@sub_assignment1.id.to_s]
+    end
+
+    it "returns nil for non-checkpoint assignments" do
+      result = submission_type.resolve("subAssignmentSubmissions { assignmentId }")
+      expect(result).to be_nil
+    end
+
+    it "returns empty array when checkpoint assignment has no sub assignments" do
+      assignment_without_subs = @course.assignments.create!(
+        name: "checkpoint without subs",
+        has_sub_assignments: true
+      )
+      submission_without_subs = assignment_without_subs.submissions.find_by!(user: @student)
+
+      submission_type_without_subs = GraphQLTypeTester.new(submission_without_subs, current_user: @teacher)
+      result = submission_type_without_subs.resolve("subAssignmentSubmissions { assignmentId }")
+      expect(result).to eq []
+    end
+
+    it "returns error when no submission existed ever" do
+      @sub_submission1.delete
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      expect do
+        checkpoint_submission_type.resolve("subAssignmentSubmissions { assignmentId }")
+      end.to raise_error(Checkpoints::SubAssignmentSubmissionSerializer::MissingSubAssignmentSubmissionError, /Submission is missing for SubAssignment/)
+    end
+
+    it "returns deducted_points for sub assignment submissions with late policy" do
+      @sub_submission1.update!(points_deducted: 1.5, late_policy_status: "late")
+      @sub_submission2.update!(points_deducted: 0, late_policy_status: nil)
+
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { deductedPoints }")
+      expect(result).to contain_exactly(1.5, 0.0)
+    end
+
+    it "returns nil for deducted_points when post policies hide grades" do
+      @sub_submission1.update!(points_deducted: 1.5, late_policy_status: "late", posted_at: nil)
+      @sub_assignment1.ensure_post_policy(post_manually: true)
+
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @student)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { deductedPoints }")
+      # Students can't see grades when posts are hidden
+      expect(result.first).to be_nil
+    end
+
+    it "returns submitted_at timestamp when sub assignment submissions have been submitted" do
+      submitted_time_1 = 2.hours.ago
+      submitted_time_2 = 1.hour.ago
+
+      @sub_assignment1.submit_homework(@student, body: "test", submitted_at: submitted_time_1)
+      @sub_assignment2.submit_homework(@student, body: "test", submitted_at: submitted_time_2)
+
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { submittedAt }")
+
+      expect(result.length).to eq 2
+      expect(result).to contain_exactly(submitted_time_1.iso8601, submitted_time_2.iso8601)
+    end
+
+    it "returns nil for submitted_at when sub assignment submissions have not been submitted" do
+      @sub_submission1.update!(submitted_at: nil, workflow_state: "unsubmitted")
+      @sub_submission2.update!(submitted_at: nil, workflow_state: "unsubmitted")
+
+      checkpoint_submission_type = GraphQLTypeTester.new(@checkpoint_submission, current_user: @teacher)
+      result = checkpoint_submission_type.resolve("subAssignmentSubmissions { submittedAt }")
+
+      expect(result).to contain_exactly(nil, nil)
     end
   end
 
@@ -1458,6 +1649,135 @@ describe Types::SubmissionType do
       expect(submission_type.resolve("provisionalGradesConnection { nodes { _id } }")).to eq(
         @moderated_assignment.provisional_grades.where(scorer: @teacher1).map { |x| x.id.to_s }
       )
+    end
+
+    describe "provisional grading fields" do
+      it "returns true for hasProvisionalGradeByCurrentUser when user has provided a provisional grade with non-null score" do
+        submission_type = GraphQLTypeTester.new(@moderated_submission, current_user: @teacher1)
+        expect(submission_type.resolve("hasProvisionalGradeByCurrentUser")).to be true
+      end
+
+      it "returns false for hasProvisionalGradeByCurrentUser when user has not provided a provisional grade" do
+        submission_type = GraphQLTypeTester.new(@moderated_submission, current_user: @moderator)
+        expect(submission_type.resolve("hasProvisionalGradeByCurrentUser")).to be false
+      end
+
+      it "returns false for hasProvisionalGradeByCurrentUser when provisional grade has null score" do
+        @moderated_submission.provisional_grades.destroy_all
+        @moderated_submission.provisional_grades.create!(scorer: @teacher1, score: nil)
+        submission_type = GraphQLTypeTester.new(@moderated_submission, current_user: @teacher1)
+        expect(submission_type.resolve("hasProvisionalGradeByCurrentUser")).to be false
+      end
+
+      it "returns false for hasProvisionalGradeByCurrentUser on non-moderated assignments" do
+        submission_type = GraphQLTypeTester.new(@submission, current_user: @teacher1)
+        expect(submission_type.resolve("hasProvisionalGradeByCurrentUser")).to be false
+      end
+
+      it "returns false for hasProvisionalGradeByCurrentUser after grades are published" do
+        @moderated_assignment.update!(grades_published_at: Time.zone.now)
+        submission_type = GraphQLTypeTester.new(@moderated_submission, current_user: @teacher1)
+        expect(submission_type.resolve("hasProvisionalGradeByCurrentUser")).to be false
+      end
+    end
+  end
+
+  describe "hasOriginalityReport" do
+    before(:once) do
+      @assignment_with_report = @course.assignments.create!(
+        name: "assignment with originality report",
+        submission_types: "online_upload"
+      )
+      @attachment = attachment_model
+      @submission_with_report = @assignment_with_report.submit_homework(
+        @student,
+        submission_type: "online_upload",
+        attachments: [@attachment]
+      )
+    end
+
+    let(:submission_with_report_type) { GraphQLTypeTester.new(@submission_with_report, current_user: @teacher) }
+
+    it "returns false when submission has no originality report" do
+      expect(submission_with_report_type.resolve("hasOriginalityReport")).to be false
+    end
+
+    it "returns false for unsubmitted submissions" do
+      unsubmitted_assignment = @course.assignments.create!(name: "unsubmitted assignment")
+      unsubmitted_submission = unsubmitted_assignment.submissions.find_by!(user: @student)
+      unsubmitted_type = GraphQLTypeTester.new(unsubmitted_submission, current_user: @teacher)
+
+      expect(unsubmitted_type.resolve("hasOriginalityReport")).to be false
+    end
+
+    context "when submission has an originality report" do
+      before(:once) do
+        @report = OriginalityReport.create!(
+          attachment: @attachment,
+          originality_score: 75,
+          submission: @submission_with_report,
+          submission_time: @submission_with_report.submitted_at
+        )
+      end
+
+      it "returns true" do
+        expect(submission_with_report_type.resolve("hasOriginalityReport")).to be true
+      end
+
+      it "delegates to submission.originality_report_matches_current_version? for matching logic" do
+        # The resolver should call the model method - verify it returns the same result
+        expect(submission_with_report_type.resolve("hasOriginalityReport")).to eq(
+          @submission_with_report.originality_report_matches_current_version?(@report)
+        )
+      end
+
+      it "works without throwing NoMethodError when originality reports exist" do
+        # Should not raise NoMethodError
+        expect { submission_with_report_type.resolve("hasOriginalityReport") }.not_to raise_error
+      end
+    end
+  end
+
+  describe "auto_grade_submission_issues" do
+    before do
+      allow(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_submission)
+        .with(submission: @submission)
+        .and_return({ level: "error", message: "Test error" })
+    end
+
+    it "returns nil when project_lhotse feature flag is disabled" do
+      @course.disable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).not_to receive(:validate_submission)
+      expect(submission_type.resolve("autoGradeSubmissionIssues { level message }")).to be_nil
+    end
+
+    it "returns issues when project_lhotse feature flag is enabled" do
+      @course.enable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_submission)
+      level = submission_type.resolve("autoGradeSubmissionIssues { level }")
+      message = submission_type.resolve("autoGradeSubmissionIssues { message }")
+      expect(level).to eq "error"
+      expect(message).to eq "Test error"
+    end
+  end
+
+  describe "auto_grade_submission_errors" do
+    before do
+      allow(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_submission)
+        .with(submission: @submission)
+        .and_return({ level: "error", message: "Test error" })
+    end
+
+    it "returns empty array when project_lhotse feature flag is disabled" do
+      @course.disable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).not_to receive(:validate_submission)
+      expect(submission_type.resolve("autoGradeSubmissionErrors")).to eq([])
+    end
+
+    it "returns error messages when project_lhotse feature flag is enabled" do
+      @course.enable_feature!(:project_lhotse)
+      expect(GraphQLHelpers::AutoGradeEligibilityHelper).to receive(:validate_submission)
+      expect(submission_type.resolve("autoGradeSubmissionErrors")).to eq(["Test error"])
     end
   end
 end

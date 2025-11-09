@@ -92,6 +92,15 @@ module Types
             "Boolean representing whether or not members from within the same group on a group assignment can be assigned to peer review their own group's work",
             method: :intra_group_peer_reviews,
             null: true
+      field :submission_required,
+            Boolean,
+            "Boolean indicating if students must submit their assignment before they can do peer reviews",
+            null: true
+      def submission_required
+        return nil unless object.context.feature_enabled?(:peer_review_allocation)
+
+        object.peer_review_submission_required
+      end
     end
 
     class AssignmentModeratedGrading < ApplicationObjectType
@@ -126,6 +135,11 @@ module Types
             null: true
       def final_grader
         Loaders::IDLoader.for(User).load(object.final_grader_id)
+      end
+
+      field :final_grader_anonymous_id, String, "The anonymous ID of the final grader", null: true
+      def final_grader_anonymous_id
+        Loaders::AssignmentLoaders::FinalGraderAnonymousIdLoader.load(object.id)
       end
     end
 
@@ -198,6 +212,64 @@ module Types
         end
 
         term
+      end
+    end
+
+    class AllocationRulesFilterInputType < Types::BaseInputObject
+      argument :search_term,
+               String,
+               required: false,
+               prepare: :prepare_search_term
+
+      def prepare_search_term(term)
+        if term.presence && term.length < SearchTermHelper::MIN_SEARCH_TERM_LENGTH
+          raise GraphQL::ExecutionError, "search term must be at least #{SearchTermHelper::MIN_SEARCH_TERM_LENGTH} characters"
+        end
+
+        term
+      end
+    end
+
+    class AssignmentAllocationRules < ApplicationObjectType
+      description "Allocation rules for peer review assignments"
+
+      field :rules_connection, AllocationRuleType.connection_type, null: true do
+        description "Paginated list of allocation rules"
+        argument :filter, AllocationRulesFilterInputType, required: false
+      end
+      def rules_connection(filter: {})
+        apply_search_filter(filter).then { |scope| scope.order(:id) }
+      end
+
+      field :count, Int, null: true do
+        description "Total count of allocation rules (filtered if search is applied)"
+        argument :filter, AllocationRulesFilterInputType, required: false
+      end
+      def count(filter: {})
+        apply_search_filter(filter).then(&:count)
+      end
+
+      private
+
+      def apply_search_filter(filter)
+        load_association(:allocation_rules).then do |rules|
+          scope = rules.active
+
+          search_term = filter[:search_term].presence
+          if search_term
+            scope = scope.joins(
+              "JOIN #{User.quoted_table_name} AS assessor_users ON allocation_rules.assessor_id = assessor_users.id"
+            ).joins(
+              "JOIN #{User.quoted_table_name} AS assessee_users ON allocation_rules.assessee_id = assessee_users.id"
+            ).where(
+              "assessor_users.name ILIKE ? OR assessee_users.name ILIKE ?",
+              "%#{search_term}%",
+              "%#{search_term}%"
+            )
+          end
+
+          scope
+        end
       end
     end
 
@@ -354,6 +426,12 @@ module Types
     def has_rubric
       Loaders::AssignmentLoaders::HasRubricLoader.load(object.id)
     end
+
+    field :has_plagiarism_tool, Boolean, "Indicates if the assignment has LTI 2.0 plagiarism detection tool configured", null: false
+    def has_plagiarism_tool
+      assignment.assignment_configuration_tool_lookup_ids.present?
+    end
+
     field :muted, Boolean, null: true
 
     field :assignment_visibility, [ID], null: true do
@@ -538,6 +616,16 @@ module Types
       assignment.moderated_grading?
     end
 
+    field :allow_provisional_grading, Types::AllowProvisionalGradingType, null: false, description: "Whether the current user can provide a provisional grade for this assignment"
+    def allow_provisional_grading
+      return "not_applicable" unless assignment.moderated_grading?
+      # Once grades are published, moderation is over - treat as normal assignment
+      return "not_applicable" if assignment.grades_published_at.present?
+
+      can_grade = assignment.can_be_moderated_grader?(current_user)
+      can_grade ? "allowed" : "not_allowed"
+    end
+
     field :post_manually, Boolean, null: true
     def post_manually
       Loaders::AssignmentLoaders::PostManuallyLoader.load(object.id)
@@ -666,14 +754,7 @@ module Types
       load_association(:context).then do |course|
         next unless course.root_account.feature_enabled?(:lti_asset_processor)
 
-        # Check if user has manage_grades permission or if student can read their own grade
-        if course.grants_right?(current_user, :manage_grades)
-          load_association(:lti_asset_processors)
-        elsif current_user && (submission = assignment.submissions.find_by(user: current_user))
-          if submission.user_can_read_grade?(current_user, for_plagiarism: true)
-            load_association(:lti_asset_processors)
-          end
-        end
+        load_association(:lti_asset_processors)
       end
     end
 
@@ -682,6 +763,15 @@ module Types
       load_association(:context).then do |course|
         if course.grants_right?(current_user, :manage_grades)
           load_association(:post_policy)
+        end
+      end
+    end
+
+    field :scheduled_post, ScheduledPostType, null: true
+    def scheduled_post
+      load_association(:context).then do |course|
+        if course.grants_right?(current_user, :manage_grades)
+          load_association(:scheduled_post)
         end
       end
     end
@@ -768,13 +858,21 @@ module Types
 
     field :auto_grade_assignment_issues, Types::EligibilityIssueType, null: true, description: "Issues related to the assignment"
     def auto_grade_assignment_issues
-      GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
+      load_association(:context).then do |course|
+        next nil unless course.feature_enabled?(:project_lhotse)
+
+        GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
+      end
     end
 
     field :auto_grade_assignment_errors, [String], null: false, description: "Errors related to the assignment"
     def auto_grade_assignment_errors
-      issues = GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
-      issues ? [issues[:message]] : []
+      load_association(:context).then do |course|
+        next [] unless course.feature_enabled?(:project_lhotse)
+
+        issues = GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
+        issues ? [issues[:message]] : []
+      end
     end
 
     field :is_new_quiz, Boolean, null: false, description: "Assignment is connected to a New Quiz"
@@ -787,11 +885,15 @@ module Types
       case object.submission_types
       when "online_quiz"
         load_association(:quiz).then do |quiz|
+          next unless quiz
+
           Loaders::AssociationLoader.for(QuizType, :context_module_tags).load(quiz)
         end
 
       when "discussion_topic"
         load_association(:discussion_topic).then do |discussion|
+          next unless discussion
+
           Loaders::AssociationLoader.for(DiscussionType, :context_module_tags).load(discussion)
         end
       else
@@ -812,6 +914,7 @@ module Types
         scope = scope.name_like(search_term, "peer_review")
       end
 
+      context.scoped_set!(:assignment_id, assignment.id)
       scope
     end
 
@@ -830,15 +933,16 @@ module Types
       end
     end
 
-    field :allocation_rules_connection, AllocationRuleType.connection_type, null: true do
+    field :allocation_rules, AssignmentAllocationRules, null: true do
       description "Allocation rules if peer review is enabled"
     end
-    def allocation_rules_connection
+    def allocation_rules
       return nil unless assignment.grants_right?(current_user, :grade) &&
-                        assignment.context.feature_enabled?(:peer_review_allocation_and_grading) &&
+                        assignment.context.feature_enabled?(:peer_review_allocation) &&
                         assignment.peer_reviews
 
-      load_association(:allocation_rules).then(&:active)
+      context.scoped_set!(:assignment_id, assignment.id)
+      assignment
     end
   end
 end

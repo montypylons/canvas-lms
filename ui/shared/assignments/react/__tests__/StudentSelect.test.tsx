@@ -22,20 +22,49 @@ import userEvent from '@testing-library/user-event'
 import {QueryClient} from '@tanstack/react-query'
 import {MockedQueryClientProvider} from '@canvas/test-utils/query'
 import StudentSelect from '../StudentSelect'
-import {CourseStudent} from '../../graphql/hooks/useAssignedStudents'
+import {CourseStudent} from '@canvas/assignments/graphql/teacher/AssignmentTeacherTypes'
 
 jest.mock('@canvas/graphql', () => ({
   executeQuery: jest.fn(),
 }))
 
-const {executeQuery} = require('@canvas/graphql')
-const mockExecuteQuery = executeQuery as jest.MockedFunction<typeof executeQuery>
+jest.mock('../../graphql/hooks/useAssignedStudents', () => ({
+  useAssignedStudents: jest.fn(),
+}))
+
+const {useAssignedStudents} = require('../../graphql/hooks/useAssignedStudents')
+const mockUseAssignedStudents = useAssignedStudents as jest.MockedFunction<
+  typeof useAssignedStudents
+>
 
 const mockStudents: CourseStudent[] = [
-  {_id: '1', name: 'Pikachu'},
-  {_id: '2', name: 'Squirtle'},
-  {_id: '3', name: 'Togepi'},
-  {_id: '4', name: 'Snorlax'},
+  {_id: '1', name: 'Pikachu', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '2', name: 'Squirtle', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '3', name: 'Togepi', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+  {_id: '4', name: 'Snorlax', peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 0}},
+]
+
+const mockStudentsWithPeerReviewStatus: CourseStudent[] = [
+  {
+    _id: '1',
+    name: 'Pikachu',
+    peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 3},
+  },
+  {
+    _id: '2',
+    name: 'Squirtle',
+    peerReviewStatus: {mustReviewCount: 2, completedReviewsCount: 1},
+  },
+  {
+    _id: '3',
+    name: 'Togepi',
+    peerReviewStatus: {mustReviewCount: 3, completedReviewsCount: 0},
+  },
+  {
+    _id: '4',
+    name: 'Snorlax',
+    peerReviewStatus: {mustReviewCount: 1, completedReviewsCount: 1},
+  },
 ]
 
 describe('StudentSelect', () => {
@@ -44,12 +73,16 @@ describe('StudentSelect', () => {
   const mockClearErrors = jest.fn()
 
   const defaultProps = {
+    inputId: 'test-student-select',
     label: 'Select Student',
     errors: [],
-    filterStudents: new Set<CourseStudent>(),
+    selectedStudent: null,
+    filteredStudents: [],
     onOptionSelect: mockOnOptionSelect,
     handleInputRef: mockHandleInputRef,
     clearErrors: mockClearErrors,
+    requiredPeerReviewsCount: 2,
+    assignmentId: '123',
   }
 
   let user: ReturnType<typeof userEvent.setup>
@@ -57,6 +90,12 @@ describe('StudentSelect', () => {
   beforeEach(() => {
     user = userEvent.setup()
     jest.clearAllMocks()
+
+    mockUseAssignedStudents.mockReturnValue({
+      students: [],
+      loading: false,
+      error: null,
+    })
   })
 
   const renderWithMocks = (props = {}) => {
@@ -91,193 +130,188 @@ describe('StudentSelect', () => {
       renderWithMocks({errors})
       expect(screen.getByText('This field is required')).toBeInTheDocument()
     })
-  })
 
-  describe('Assignment student search', () => {
-    it('shows loading spinner while fetching assigned students', async () => {
-      // Mock a delayed response
-      mockExecuteQuery.mockImplementation(
-        () =>
-          new Promise(resolve =>
-            setTimeout(
-              () =>
-                resolve({
-                  assignment: {
-                    assignedStudents: {
-                      nodes: [mockStudents[0]],
-                    },
-                  },
-                }),
-              100,
-            ),
-          ),
-      )
+    it('renders with selectedStudent prop populated', () => {
+      const selectedStudent = mockStudents[0]
+      renderWithMocks({selectedStudent})
 
-      renderWithMocks({assignmentId: 'assignment-123'})
-
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Pikachu')
-
-        expect(screen.getByTitle('Loading')).toBeInTheDocument()
-      }
-    })
-
-    it('displays assigned students in search results', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: [mockStudents[0]],
-          },
-        },
-      })
-
-      renderWithMocks({assignmentId: 'assignment-123'})
-
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Pikachu')
-
-        await waitFor(() => {
-          expect(screen.getByText('Pikachu')).toBeInTheDocument()
-        })
-      }
-    })
-
-    it('allows selection of assigned student', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: [mockStudents[0]],
-          },
-        },
-      })
-
-      renderWithMocks({assignmentId: 'assignment-123'})
-
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Pikachu')
-
-        await waitFor(() => {
-          expect(screen.getByText('Pikachu')).toBeInTheDocument()
-        })
-
-        await user.click(screen.getByText('Pikachu'))
-
-        expect(mockOnOptionSelect).toHaveBeenCalledWith(mockStudents[0])
-        expect(input).toHaveValue('Pikachu')
-      }
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      expect(input).toHaveValue('Pikachu')
     })
   })
 
-  describe('Course student search', () => {
-    it('displays course students when courseId is provided', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        course: {
-          usersConnection: {
-            nodes: [mockStudents[1]],
-          },
-        },
+  describe('Selected student prop', () => {
+    it('input renders given selected student', () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: mockStudents,
+        loading: false,
+        error: null,
       })
 
-      renderWithMocks({courseId: 'course-456'})
+      renderWithMocks({selectedStudent: mockStudents[0]})
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Squirtle')
-
-        await waitFor(() => {
-          expect(screen.getByText('Squirtle')).toBeInTheDocument()
-        })
-      }
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      expect(input).toHaveValue('Pikachu')
     })
 
-    it('allows selection of course student', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        course: {
-          usersConnection: {
-            nodes: [mockStudents[1]],
-          },
-        },
+    it('clears selection when user types different value', async () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: mockStudents,
+        loading: false,
+        error: null,
       })
 
-      renderWithMocks({courseId: 'course-456'})
+      renderWithMocks({
+        selectedStudent: mockStudents[0],
+      })
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Squirtle')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      expect(input).toHaveValue('Pikachu')
 
-        await waitFor(() => {
-          expect(screen.getByText('Squirtle')).toBeInTheDocument()
-        })
+      await user.clear(input!)
+      await user.type(input!, 'Different Name')
 
-        await user.click(screen.getByText('Squirtle'))
-
-        expect(mockOnOptionSelect).toHaveBeenCalledWith(mockStudents[1])
-      }
+      expect(mockOnOptionSelect).toHaveBeenLastCalledWith(undefined)
     })
   })
 
   describe('Student filtering', () => {
-    it('filters out students in the filterStudents set', async () => {
-      const filterStudents = new Set([mockStudents[0]])
+    it('filters out students in the filteredStudents array', async () => {
+      const filteredStudents = [mockStudents[0]]
 
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: mockStudents,
-          },
-        },
+      mockUseAssignedStudents.mockReturnValue({
+        students: mockStudents,
+        loading: false,
+        error: null,
       })
 
-      renderWithMocks({assignmentId: 'assignment-123', filterStudents})
+      renderWithMocks({filteredStudents})
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.click(input)
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
 
-        await waitFor(() => {
-          expect(screen.getByText('Squirtle')).toBeInTheDocument()
-          expect(screen.getByText('Togepi')).toBeInTheDocument()
-          expect(screen.getByText('Snorlax')).toBeInTheDocument()
-          expect(screen.queryByText('Pikachu')).not.toBeInTheDocument()
-        })
-      }
+      await user.type(input!, 'St')
+
+      await waitFor(() => {
+        expect(screen.getByText('Squirtle')).toBeInTheDocument()
+        expect(screen.getByText('Snorlax')).toBeInTheDocument()
+        expect(screen.queryByText('Pikachu')).not.toBeInTheDocument()
+      })
+    })
+
+    it('shows all students when filteredStudents is empty', async () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: mockStudents,
+        loading: false,
+        error: null,
+      })
+
+      renderWithMocks({filteredStudents: []})
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+
+      await user.type(input!, 'St')
+
+      await waitFor(() => {
+        expect(screen.getByText('Squirtle')).toBeInTheDocument()
+        expect(screen.getByText('Snorlax')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Assignment student search', () => {
+    it('shows loading spinner while fetching assigned students', async () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: [],
+        loading: true,
+        error: null,
+      })
+
+      renderWithMocks({})
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'Pikachu')
+
+      expect(screen.getByTestId('loading-option')).toBeInTheDocument()
+    })
+
+    it('displays assigned students in search results', async () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: [mockStudents[0]],
+        loading: false,
+        error: null,
+      })
+
+      renderWithMocks()
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+
+      await user.type(input!, 'Pikachu')
+
+      await waitFor(() => {
+        expect(screen.getByText('Pikachu')).toBeInTheDocument()
+      })
+    })
+
+    it('allows selection of assigned student', async () => {
+      mockUseAssignedStudents.mockReturnValue({
+        students: [mockStudents[0]],
+        loading: false,
+        error: null,
+      })
+
+      renderWithMocks()
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+
+      await user.type(input!, 'Pikachu')
+
+      await waitFor(() => {
+        expect(screen.getByText('Pikachu')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByText('Pikachu'))
+
+      expect(mockOnOptionSelect).toHaveBeenCalledWith(mockStudents[0])
+      expect(input).toHaveValue('Pikachu')
     })
   })
 
   describe('Input interactions', () => {
     it('hides options when input loses focus', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: [mockStudents[0]],
-          },
-        },
+      mockUseAssignedStudents.mockReturnValue({
+        students: [mockStudents[0]],
+        loading: false,
+        error: null,
       })
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      renderWithMocks()
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Pikachu')
-        await user.tab() // Move focus away
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
 
-        expect(input.getAttribute('aria-expanded')).toBe('false')
-      }
+      await user.type(input!, 'Pikachu')
+      await user.tab()
+
+      expect(input!.getAttribute('aria-expanded')).toBe('false')
     })
 
     it('clears errors when typing', async () => {
       const errors = [{text: 'This field is required', type: 'error'}]
       renderWithMocks({errors})
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'A')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'A')
 
-        expect(mockClearErrors).toHaveBeenCalled()
-      }
+      expect(mockClearErrors).toHaveBeenCalled()
     })
 
     it('calls handleInputRef with input reference', () => {
@@ -288,96 +322,85 @@ describe('StudentSelect', () => {
 
   describe('Empty states', () => {
     it('shows "No results" when search returns empty', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: [],
-          },
-        },
+      mockUseAssignedStudents.mockReturnValue({
+        students: [],
+        loading: false,
+        error: null,
       })
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      renderWithMocks()
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'NonexistentStudent')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'NonexistentStudent')
 
-        await waitFor(() => {
-          expect(screen.getByText('No results')).toBeInTheDocument()
-        })
-      }
+      await waitFor(() => {
+        expect(screen.getByText('No results')).toBeInTheDocument()
+      })
     })
 
     it('shows empty option when no students are available', async () => {
-      mockExecuteQuery.mockResolvedValueOnce({
-        assignment: {
-          assignedStudents: {
-            nodes: [],
-          },
-        },
+      renderWithMocks()
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'xx')
+
+      await waitFor(() => {
+        expect(screen.getByText('No results')).toBeInTheDocument()
       })
-
-      renderWithMocks({assignmentId: 'assignment-123'})
-
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.click(input)
-
-        await waitFor(() => {
-          expect(screen.getByText('No results')).toBeInTheDocument()
-        })
-      }
     })
   })
 
   describe('Error handling', () => {
     it('displays error alert when search fails', async () => {
-      mockExecuteQuery.mockRejectedValueOnce(new Error('Network error occurred'))
+      mockUseAssignedStudents.mockReturnValue({
+        students: [],
+        loading: false,
+        error: new Error('Network error occurred'),
+      })
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      renderWithMocks()
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Error')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'Error')
 
-        await waitFor(() => {
-          expect(
-            screen.getByText('An error occurred while searching for Select Student'),
-          ).toBeInTheDocument()
-        })
-      }
+      await waitFor(() => {
+        expect(
+          screen.getByText('An error occurred while searching for Select Student'),
+        ).toBeInTheDocument()
+      })
     })
 
     it('does not show options when there is an error', async () => {
-      mockExecuteQuery.mockRejectedValueOnce(new Error('Network error occurred'))
+      mockUseAssignedStudents.mockReturnValue({
+        students: [],
+        loading: false,
+        error: new Error('Network error occurred'),
+      })
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      renderWithMocks()
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Error')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'Error')
 
-        await waitFor(() => {
-          expect(input.getAttribute('aria-expanded')).toBe('false')
-        })
-      }
+      await waitFor(() => {
+        expect(input!.getAttribute('aria-expanded')).toBe('false')
+      })
     })
 
     it('does not show error alert for single character search', async () => {
-      mockExecuteQuery.mockRejectedValueOnce(new Error('Network error occurred'))
+      renderWithMocks()
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'E')
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'E')
-
-        await new Promise(resolve => setTimeout(resolve, 100))
-
-        expect(
-          screen.queryByText('An error occurred while searching for Select Student'),
-        ).not.toBeInTheDocument()
-      }
+      expect(
+        screen.queryByText('An error occurred while searching for Select Student'),
+      ).not.toBeInTheDocument()
     })
   })
 
@@ -390,32 +413,90 @@ describe('StudentSelect', () => {
     })
 
     it('provides screen reader accessible loading state', async () => {
-      // Mock a delayed response
-      mockExecuteQuery.mockImplementation(
-        () =>
-          new Promise(resolve =>
-            setTimeout(
-              () =>
-                resolve({
-                  assignment: {
-                    assignedStudents: {
-                      nodes: [mockStudents[0]],
-                    },
-                  },
-                }),
-              100,
-            ),
-          ),
-      )
+      mockUseAssignedStudents.mockReturnValue({
+        students: [],
+        loading: true,
+        error: null,
+      })
 
-      renderWithMocks({assignmentId: 'assignment-123'})
+      renderWithMocks()
 
-      const input = screen.getByText('Select Student').querySelector('input')
-      if (input) {
-        await user.type(input, 'Pikachu')
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'Pikachu')
 
-        expect(screen.getByTitle('Loading')).toBeInTheDocument()
+      expect(screen.getByTitle('Loading')).toBeInTheDocument()
+    })
+  })
+
+  describe('Search term validation', () => {
+    it('shows error message for single character search', async () => {
+      renderWithMocks({delay: 0})
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'A')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Search term must be at least 2 characters long'),
+        ).toBeInTheDocument()
+      })
+    })
+
+    it('clears single character error when typing more characters', async () => {
+      renderWithMocks({delay: 0})
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'A')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Search term must be at least 2 characters long'),
+        ).toBeInTheDocument()
+      })
+
+      await user.type(input!, 'B')
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText('Search term must be at least 2 characters long'),
+        ).not.toBeInTheDocument()
+      })
+    })
+
+    it('does not show options when search term is only one character', async () => {
+      renderWithMocks()
+
+      const input = document.getElementById('test-student-select')
+      expect(input).not.toBeNull()
+      await user.type(input!, 'A')
+
+      expect(input!.getAttribute('aria-expanded')).toBe('false')
+    })
+  })
+
+  describe('Peer review status hints', () => {
+    it('displays hint message when passed as prop', () => {
+      const hintMessage = {
+        type: 'hint',
+        text: 'Pikachu has already completed the required amount of peer reviews.',
       }
+      const errors = [hintMessage]
+
+      renderWithMocks({errors})
+
+      expect(
+        screen.getByText('Pikachu has already completed the required amount of peer reviews.'),
+      ).toBeInTheDocument()
+    })
+
+    it('does not display hint when errors array is empty', () => {
+      renderWithMocks({errors: []})
+
+      expect(screen.queryByText(/has already completed/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/has enough "must review"/)).not.toBeInTheDocument()
     })
   })
 })

@@ -23,7 +23,7 @@ import {setupServer} from 'msw/node'
 import {http, HttpResponse} from 'msw'
 import CourseWorkWidget from '../CourseWorkWidget'
 import type {BaseWidgetProps, Widget} from '../../../../types'
-import {defaultGraphQLHandlers} from '../../../../__tests__/testHelpers'
+import {defaultGraphQLHandlers, clearWidgetDashboardCache} from '../../../../__tests__/testHelpers'
 
 const tomorrow = new Date()
 tomorrow.setDate(tomorrow.getDate() + 1)
@@ -35,8 +35,7 @@ threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3)
 const mockWidget: Widget = {
   id: 'course-work-widget',
   type: 'course_work',
-  position: {col: 1, row: 1},
-  size: {width: 2, height: 2},
+  position: {col: 1, row: 1, relative: 1},
   title: 'Course Work',
 }
 
@@ -196,6 +195,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
+  clearWidgetDashboardCache()
   window.ENV = {current_user_id: '1'} as any
 })
 
@@ -340,11 +340,13 @@ describe('CourseWorkWidget', () => {
   })
 
   it('handles error state', async () => {
+    jest.spyOn(console, 'error').mockImplementation()
+
     server.use(
       http.post('/api/graphql', async ({request}) => {
         const body = (await request.json()) as {query: string; variables: any}
         if (body.query.includes('GetUserCourseWork')) {
-          return HttpResponse.json({errors: [{message: 'Internal Server Error'}]}, {status: 500})
+          return HttpResponse.json({errors: [{message: 'Internal Server Error'}]}, {status: 200})
         }
         return new Response('Query not handled', {status: 404})
       }),

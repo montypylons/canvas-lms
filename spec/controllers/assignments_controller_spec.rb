@@ -407,7 +407,6 @@ describe AssignmentsController do
 
     context "assign to differentiation tags" do
       before :once do
-        @course.account.enable_feature! :assign_to_differentiation_tags
         @course.account.tap do |a|
           a.settings[:allow_assign_to_differentiation_tags] = { value: true }
           a.save!
@@ -1255,37 +1254,6 @@ describe AssignmentsController do
           end
         end
 
-        it "sets ASSET_REPORTS js_env" do
-          user_session(@student)
-          student_submission = @assignment.submissions.find_by(user: @student)
-          allow_any_instance_of(AssignmentsController).to receive(:asset_reports)
-            .with(submission: student_submission)
-            .and_return([{ id: 1, name: "Report 1" }])
-
-          get "show", params: { course_id: @course.id, id: @assignment.id }
-
-          expect(assigns[:js_env][:ASSET_REPORTS]).to eq([{ id: 1, name: "Report 1" }])
-        end
-
-        it "sets ASSET_PROCESSING js_env" do
-          user_session(@student)
-          allow_any_instance_of(AssignmentsController).to receive(:asset_processors)
-            .with(assignment: @assignment)
-            .and_return([{ id: 50 }])
-
-          get "show", params: { course_id: @course.id, id: @assignment.id }
-
-          expect(assigns[:js_env][:ASSET_PROCESSORS]).to eq([{ id: 50 }])
-        end
-
-        it "sets ASSIGNMENT_NAME js_env" do
-          user_session(@student)
-
-          get "show", params: { course_id: @course.id, id: @assignment.id }
-
-          expect(assigns[:js_env][:ASSIGNMENT_NAME]).to eq(@assignment.title)
-        end
-
         it "sets correct breadcrumb with assignment title for assignment enhancements" do
           user_session(@student)
           get :show, params: { course_id: @course.id, id: @assignment.id }
@@ -1382,7 +1350,7 @@ describe AssignmentsController do
 
     describe "assignment_enhancements_teacher_view" do
       before do
-        @course.root_account.enable_feature!(:assignment_enhancements_teacher_view)
+        @course.enable_feature!(:assignment_enhancements_teacher_view)
         @course.save!
       end
 
@@ -1707,7 +1675,6 @@ describe AssignmentsController do
 
           context "differentiation tags" do
             before do
-              Account.default.enable_feature! :assign_to_differentiation_tags
               Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
               Account.default.save!
               Account.default.reload
@@ -2069,7 +2036,6 @@ describe AssignmentsController do
 
     context "assign to differentiation tags" do
       before :once do
-        @course.account.enable_feature! :assign_to_differentiation_tags
         @course.account.tap do |a|
           a.settings[:allow_assign_to_differentiation_tags] = { value: true }
           a.save!
@@ -2103,6 +2069,37 @@ describe AssignmentsController do
         user_session(@student)
         get "show", params: { course_id: @course.id, id: @assignment.id }
         expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be false
+      end
+    end
+
+    context "js_env CAN_EDIT_ASSIGNMENTS" do
+      it "sets CAN_EDIT_ASSIGNMENTS in js_env as true if current user has assignment edit permissions" do
+        user_session(@teacher)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_EDIT_ASSIGNMENTS]).to be(true)
+      end
+
+      it "sets CAN_EDIT_ASSIGNMENTS in js_env as false if current user does not have assignment edit permissions" do
+        user_session(@teacher)
+        @course.account.role_overrides.create! role: teacher_role, permission: "manage_assignments_edit", enabled: false
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_EDIT_ASSIGNMENTS]).to be(false)
+      end
+    end
+
+    context "js_env PEER_REVIEW_ALLOCATION_ENABLED" do
+      it "sets PEER_REVIEW_ALLOCATION_ENABLED in js_env as true if enabled" do
+        user_session(@teacher)
+        @course.enable_feature!(:peer_review_allocation)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_ENABLED]).to be(true)
+      end
+
+      it "sets PEER_REVIEW_ALLOCATION_ENABLED in js_env as false if disabled" do
+        user_session(@teacher)
+        @course.disable_feature!(:peer_review_allocation)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_ENABLED]).to be(false)
       end
     end
 
@@ -3122,19 +3119,35 @@ describe AssignmentsController do
       end
     end
 
-    describe "js_env PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED" do
-      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as true if enabled" do
+    describe "js_env PEER_REVIEW_ALLOCATION_ENABLED" do
+      it "sets PEER_REVIEW_ALLOCATION_ENABLED in js_env as true if enabled" do
         user_session(@teacher)
-        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @course.enable_feature!(:peer_review_allocation)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(true)
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_ENABLED]).to be(true)
       end
 
-      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as false if disabled" do
+      it "sets PEER_REVIEW_ALLOCATION_ENABLED in js_env as false if disabled" do
         user_session(@teacher)
-        @course.disable_feature!(:peer_review_allocation_and_grading)
+        @course.disable_feature!(:peer_review_allocation)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(false)
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_ENABLED]).to be(false)
+      end
+    end
+
+    describe "js_env PEER_REVIEW_GRADING_ENABLED" do
+      it "sets PEER_REVIEW_GRADING_ENABLED in js_env as true if enabled" do
+        user_session(@teacher)
+        @course.enable_feature!(:peer_review_grading)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_GRADING_ENABLED]).to be(true)
+      end
+
+      it "sets PEER_REVIEW_GRADING_ENABLED in js_env as false if disabled" do
+        user_session(@teacher)
+        @course.disable_feature!(:peer_review_grading)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_GRADING_ENABLED]).to be(false)
       end
     end
 
@@ -3183,10 +3196,6 @@ describe AssignmentsController do
     end
 
     context "assign to differentiation tags" do
-      before :once do
-        @course.account.enable_feature! :assign_to_differentiation_tags
-      end
-
       it "is true if account setting is on" do
         @course.account.tap do |a|
           a.settings[:allow_assign_to_differentiation_tags] = { value: true }
@@ -3207,48 +3216,6 @@ describe AssignmentsController do
         user_session(@teacher)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
         expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
-      end
-    end
-
-    describe "ASSET_PROCESSORS" do
-      before { user_session(@teacher) }
-
-      it "includes the existing asset processors" do
-        icon = "http://example.com/ap.png"
-        tool = external_tool_1_3_model(context: @course)
-        ap1 = lti_asset_processor_model(tool:, assignment: @assignment, title: "ap 1", iframe: { width: 100, height: 200 }, window: nil, icon: { url: icon })
-        ap2 = lti_asset_processor_model(tool:, assignment: @assignment, title: "ap 2", window: { width: 300, height: 400 }, iframe: nil, icon: { url: icon })
-        get :edit, params: { course_id: @course.id, id: @assignment.id }
-
-        aps = assigns[:js_env][:ASSET_PROCESSORS].map do |ap|
-          ap.slice(:id, :title, :tool_id, :tool_name, :icon_or_tool_icon_url, :iframe, :window).deep_symbolize_keys
-        end
-
-        expected = [
-          {
-            id: ap1.id,
-            title: "ap 1",
-            tool_id: tool.id,
-            tool_name: tool.name,
-            icon_or_tool_icon_url: icon,
-            iframe: { width: 100, height: 200 },
-          },
-          {
-            id: ap2.id,
-            title: "ap 2",
-            tool_id: tool.id,
-            tool_name: tool.name,
-            icon_or_tool_icon_url: icon,
-            window: { width: 300, height: 400 }
-          }
-        ]
-
-        expect(aps).to match_array(expected)
-      end
-
-      it "is an empty array when there are no asset processors" do
-        get :edit, params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:ASSET_PROCESSORS]).to eq []
       end
     end
 

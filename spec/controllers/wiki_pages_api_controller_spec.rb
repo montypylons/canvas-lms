@@ -96,7 +96,8 @@ describe WikiPagesApiController, type: :request do
 
     context "block_content_editor feature is disabled" do
       before do
-        @course.account.disable_feature!(:block_content_editor)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
       end
 
       it "returns a list of wiki pages" do
@@ -109,6 +110,7 @@ describe WikiPagesApiController, type: :request do
     context "block_content_editor feature is enabled" do
       before do
         @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
       end
 
       it "returns a list of wiki pages" do
@@ -116,6 +118,40 @@ describe WikiPagesApiController, type: :request do
         expect(response).to be_an(Array)
         expect(response.pluck("id")).to include(@wiki_page["id"])
       end
+    end
+  end
+
+  describe "n_plus_one_index_wiki_page_api feature flag" do
+    before :once do
+      student_in_course(active_all: true)
+
+      5.times do |i|
+        page = @course.wiki_pages.create!(title: "Test Page #{i}")
+        page.assignment_overrides.create!(set_type: "CourseSection", set_id: @course.default_section.id)
+        mod = @course.context_modules.first || @course.context_modules.create!(name: "Module")
+        mod.add_item(type: "wiki_page", id: page.id)
+      end
+    end
+
+    def count_queries_for_pages_api(flag_enabled:)
+      flag_enabled ? Account.site_admin.enable_feature!(:n_plus_one_index_wiki_page_api) : Account.site_admin.disable_feature!(:n_plus_one_index_wiki_page_api)
+
+      query_count = 0
+      ActiveSupport::Notifications.subscribed(
+        ->(*, payload) { query_count += 1 if payload[:sql] && !payload[:cached] },
+        "sql.active_record"
+      ) do
+        json = api_call_as_user(@student, :get, "/api/v1/courses/#{@course.id}/pages", controller: "wiki_pages_api", action: "index", format: "json", course_id: @course.to_param)
+        expect(json).to be_an(Array)
+      end
+      query_count
+    end
+
+    it "reduces N+1 queries compared to flag disabled" do
+      query_count_off = count_queries_for_pages_api(flag_enabled: false)
+      query_count_on = count_queries_for_pages_api(flag_enabled: true)
+
+      expect(query_count_on).to be < query_count_off, "Query count should be less, but its not: #{query_count_on} < #{query_count_off}"
     end
   end
 
@@ -217,6 +253,229 @@ describe WikiPagesApiController, type: :request do
         expect do
           update_wiki_page(@teacher, @wiki_page, { title: "Another Title" })
         end.not_to raise_error
+      end
+    end
+  end
+
+  describe "POST #ai_generate_alt_text" do
+    def ai_generate_alt_text_request(user, params = {})
+      url = "/api/v1/courses/#{@course.id}/pages_ai/alt_text"
+      path = {
+        controller: "wiki_pages_api",
+        action: "ai_generate_alt_text",
+        format: "json",
+        course_id: @course.id.to_s
+      }
+      api_call_as_user(user, :post, url, path, params)
+    end
+
+    context "when block content editor is disabled" do
+      let!(:attachment) do
+        attachment = @course.attachments.create!(
+          filename: "test_image.jpg",
+          uploaded_data: StringIO.new("fake image data")
+        )
+        attachment.update!(content_type: "image/jpeg")
+        attachment
+      end
+
+      before do
+        @course.account.enable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "returns forbidden even for teachers" do
+        ai_generate_alt_text_request(@teacher, { attachment_id: attachment.id })
+        expect(response).to have_http_status(:forbidden)
+        expect(response.parsed_body["error"]).to eq("The feature is not available")
+      end
+
+      it "returns forbidden for students" do
+        student_in_course(active_all: true)
+        ai_generate_alt_text_request(@student, { attachment_id: attachment.id })
+        expect(response).to have_http_status(:forbidden)
+        expect(response.parsed_body["errors"][0]["message"]).to eq("user not authorized to perform that action")
+      end
+    end
+
+    context "when block content editor is enabled" do
+      before do
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+      end
+
+      context "when site admin AI alt text feature is disabled" do
+        let!(:attachment) do
+          attachment = @course.attachments.create!(
+            filename: "test_image.jpg",
+            uploaded_data: StringIO.new("fake image data")
+          )
+          attachment.update!(content_type: "image/jpeg")
+          attachment
+        end
+
+        before do
+          Account.site_admin.disable_feature!(:block_content_editor_ai_alt_text)
+          allow(CedarClient).to receive(:enabled?).and_return(true)
+        end
+
+        it "returns forbidden even for teachers" do
+          ai_generate_alt_text_request(@teacher, { attachment_id: attachment.id })
+          expect(response).to have_http_status(:forbidden)
+          expect(response.parsed_body["error"]).to eq("The feature is not available")
+        end
+
+        it "returns forbidden for students" do
+          student_in_course(active_all: true)
+          ai_generate_alt_text_request(@student, { attachment_id: attachment.id })
+          expect(response).to have_http_status(:forbidden)
+          expect(response.parsed_body["errors"][0]["message"]).to eq("user not authorized to perform that action")
+        end
+      end
+
+      context "when site admin AI alt text feature is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        end
+
+        context "when CedarClient is disabled" do
+          before do
+            allow(CedarClient).to receive(:enabled?).and_return(false)
+          end
+
+          it "returns forbidden for teachers when CedarClient is not available" do
+            ai_generate_alt_text_request(@teacher)
+            expect(response).to have_http_status(:forbidden)
+            expect(response.parsed_body["error"]).to eq("AI client is not available")
+          end
+
+          it "returns forbidden for students when CedarClient is not available" do
+            student_in_course(active_all: true)
+            ai_generate_alt_text_request(@student)
+            expect(response).to have_http_status(:forbidden)
+            expect(response.parsed_body["errors"][0]["message"]).to eq("user not authorized to perform that action")
+          end
+        end
+
+        context "when CedarClient is enabled" do
+          before do
+            stub_const("CedarClient", Class.new do
+              def enabled?
+                true
+              end
+
+              def self.generate_alt_text(*)
+                Struct.new(:image, keyword_init: true).new(image: { "altText" => "AI generated text." })
+              end
+            end)
+            allow(CedarClient).to receive(:enabled?).and_return(true)
+          end
+
+          context "with invalid parameters" do
+            # Tests ordered to match the actual validation sequence in the controller
+
+            it "returns 400 when attachment_id parameter is missing" do
+              ai_generate_alt_text_request(@teacher, {})
+              expect(response).to have_http_status(:bad_request)
+              expect(response.parsed_body).to eq({})
+            end
+
+            it "returns 400 when attachment_id is blank" do
+              ai_generate_alt_text_request(@teacher, { attachment_id: "" })
+              expect(response).to have_http_status(:bad_request)
+              expect(response.parsed_body).to eq({})
+            end
+
+            it "returns 404 when attachment is not found" do
+              non_existent_attachment_id = 99_999
+              ai_generate_alt_text_request(@teacher, { attachment_id: non_existent_attachment_id })
+              expect(response).to have_http_status(:not_found)
+            end
+
+            it "returns forbidden when user lacks read access to attachment" do
+              # Create attachment in another course that teacher doesn't have access to
+              other_course = course_factory
+              unauthorized_attachment = other_course.attachments.create!(
+                filename: "unauthorized_image.jpg",
+                uploaded_data: StringIO.new("fake image data")
+              )
+              unauthorized_attachment.update!(content_type: "image/jpeg")
+
+              ai_generate_alt_text_request(@teacher, { attachment_id: unauthorized_attachment.id })
+              expect(response).to have_http_status(:forbidden)
+            end
+
+            it "returns 400 when image exceeds size limit" do
+              large_attachment = @course.attachments.create!(
+                filename: "large_image.jpg",
+                uploaded_data: StringIO.new("x" * 4.megabytes)
+              )
+              large_attachment.update!(content_type: "image/jpeg")
+
+              ai_generate_alt_text_request(@teacher, { attachment_id: large_attachment.id })
+              expect(response).to have_http_status(:bad_request)
+              expect(response.parsed_body["error"]).to eq("Image too large")
+            end
+
+            it "returns 400 when image type is not supported" do
+              unsupported_attachment = @course.attachments.create!(
+                filename: "document.pdf",
+                uploaded_data: StringIO.new("fake pdf content")
+              )
+              unsupported_attachment.update!(content_type: "application/pdf")
+
+              ai_generate_alt_text_request(@teacher, { attachment_id: unsupported_attachment.id })
+              expect(response).to have_http_status(:bad_request)
+              expect(response.parsed_body["error"]).to eq("Unsupported image type")
+            end
+          end
+
+          context "with valid parameters" do
+            let!(:attachment) do
+              attachment = @course.attachments.create!(
+                filename: "test_image.jpg",
+                uploaded_data: StringIO.new("fake image data")
+              )
+              attachment.update!(content_type: "image/jpeg")
+              attachment
+            end
+
+            it "returns unauthorized when user lacks granular manage course content permissions" do
+              student_in_course(active_all: true)
+              ai_generate_alt_text_request(@student, { attachment_id: attachment.id })
+              expect(response).to have_http_status(:forbidden)
+              expect(response.parsed_body["errors"][0]["message"]).to eq("user not authorized to perform that action")
+            end
+
+            it "calls CedarClient.generate_alt_text with correct parameters when lang is provided" do
+              params = { lang: "en-us", attachment_id: attachment.id }
+
+              expect(CedarClient).to receive(:generate_alt_text).with({
+                                                                        image: { base64_source: kind_of(String), type: "Base64" },
+                                                                        feature_slug: "alttext",
+                                                                        root_account_uuid: @course.root_account.uuid,
+                                                                        current_user: @teacher,
+                                                                        max_length: 120,
+                                                                        target_language: "en"
+                                                                      })
+
+              ai_generate_alt_text_request(@teacher, params)
+            end
+
+            it "returns the generation result in the response" do
+              params = { attachment_id: attachment.id }
+
+              ai_generate_alt_text_request(@teacher, params)
+              expect(response).to have_http_status(:ok)
+
+              response_body = response.parsed_body
+              expect(response_body).to have_key("image")
+              expect(response_body["image"]).to have_key("altText")
+              expect(response_body["image"]["altText"]).to eq("AI generated text.")
+            end
+          end
+        end
       end
     end
   end

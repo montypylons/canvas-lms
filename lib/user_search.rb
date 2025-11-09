@@ -44,7 +44,7 @@ module UserSearch
 
       context.shard.activate do
         users_scope = context_scope(context, searcher, options.slice(:enrollment_state, :include_inactive_enrollments))
-        users_scope = users_scope.from("(#{conditions_statement(search_term, context.root_account, users_scope)}) AS users")
+        users_scope = users_scope.from("(#{conditions_statement(search_term, context.root_account, users_scope, searcher)}) AS users")
         users_scope = order_scope(users_scope, context, options.slice(:order, :sort))
         users_scope = roles_scope(users_scope, context, options.slice(:enrollment_type,
                                                                       :enrollment_role,
@@ -54,9 +54,13 @@ module UserSearch
       end
     end
 
-    def conditions_statement(search_term, root_account, users_scope)
+    def conditions_statement(search_term, root_account, users_scope, searcher)
       pattern = like_string_for(search_term)
-      params = { pattern:, account: root_account, path_type: CommunicationChannel::TYPE_EMAIL, db_id: search_term }
+      params = { pattern:,
+                 account: root_account,
+                 path_type: CommunicationChannel::TYPE_EMAIL,
+                 db_id: search_term,
+                 searcher: }
       complex_sql(users_scope, params)
     end
 
@@ -72,13 +76,11 @@ module UserSearch
       @include_deleted_users = options[:include_deleted_users]
       users_scope = context_scope(context, searcher, options.slice(:enrollment_state,
                                                                    :include_inactive_enrollments,
-                                                                   :enrollment_role_id,
-                                                                   :ui_invoked))
+                                                                   :enrollment_role_id))
       users_scope = roles_scope(users_scope, context, options.slice(:enrollment_role,
                                                                     :enrollment_role_id,
                                                                     :enrollment_type,
                                                                     :exclude_groups,
-                                                                    :ui_invoked,
                                                                     :temporary_enrollment_recipients,
                                                                     :temporary_enrollment_providers))
       users_scope = order_scope(users_scope, context, options.slice(:order, :sort))
@@ -331,7 +333,6 @@ module UserSearch
 
       return users_scope unless differentiation_tag_ids&.any? &&
                                 context.is_a?(Course) &&
-                                context.account.feature_enabled?(:assign_to_differentiation_tags) &&
                                 context.account.allow_assign_to_differentiation_tags? &&
                                 context.grants_any_right?(searcher, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
 
@@ -447,38 +448,6 @@ module UserSearch
 
     def raise_context_error(field)
       raise RequestError.new("Sorting by #{field} is only available within a course context", 400)
-    end
-  end
-
-  class Bookmarker
-    attr_accessor :order
-
-    def initialize(order: nil)
-      self.order = (order.to_s == "desc") ? :desc : :asc
-    end
-
-    def bookmark_for(user)
-      user.id.to_s
-    end
-
-    def validate(bookmark)
-      bookmark =~ /^\d+$/
-    end
-
-    def restrict_scope(scope, pager)
-      if pager.current_bookmark
-        id = pager.current_bookmark.to_i
-        scope = scope.where("users.id #{comparison(pager.include_bookmark)} ?", id)
-      end
-      scope.order("users.id #{order}")
-    end
-
-    def comparison(include_bookmark)
-      if include_bookmark
-        (order == :desc) ? "<=" : ">="
-      else
-        (order == :desc) ? "<" : ">"
-      end
     end
   end
 end

@@ -72,6 +72,7 @@ class Types::MutationType < Types::ApplicationObjectType
   field :create_submission_comment, mutation: Mutations::CreateSubmissionComment
   field :create_submission_draft, mutation: Mutations::CreateSubmissionDraft
   field :create_user_inbox_label, mutation: Mutations::CreateUserInboxLabel
+  field :delete_allocation_rule, mutation: Mutations::DeleteAllocationRule
   field :delete_comment_bank_item, mutation: Mutations::DeleteCommentBankItem
   field :delete_conversation_messages, mutation: Mutations::DeleteConversationMessages
   field :delete_conversations, mutation: Mutations::DeleteConversations
@@ -93,6 +94,7 @@ class Types::MutationType < Types::ApplicationObjectType
   field :reject_enrollment_invitation, mutation: Mutations::RejectEnrollmentInvitation
   field :restore_deleted_discussion_entry, mutation: Mutations::RestoreDeletedDiscussionEntry
   field :save_rubric_assessment, mutation: Mutations::SaveRubricAssessment
+  field :select_provisional_grade, mutation: Mutations::SelectProvisionalGrade
   field :set_friendly_description, mutation: Mutations::SetFriendlyDescription
   field :set_module_item_completion, mutation: Mutations::SetModuleItemCompletion
   field :set_override_status, mutation: Mutations::SetOverrideStatus
@@ -112,6 +114,7 @@ class Types::MutationType < Types::ApplicationObjectType
   field :update_discussion_topic_participant, mutation: Mutations::UpdateDiscussionTopicParticipant
   field :update_gradebook_group_filter, mutation: Mutations::UpdateGradebookGroupFilter
   field :update_internal_setting, mutation: Mutations::UpdateInternalSetting
+  field :update_learner_dashboard_tab_selection, mutation: Mutations::UpdateLearnerDashboardTabSelection
   field :update_learning_outcome, mutation: Mutations::UpdateLearningOutcome
   field :update_learning_outcome_group, mutation: Mutations::UpdateLearningOutcomeGroup
   field :update_my_inbox_settings, mutation: Mutations::UpdateMyInboxSettings

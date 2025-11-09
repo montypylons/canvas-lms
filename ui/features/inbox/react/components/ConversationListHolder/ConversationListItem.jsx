@@ -139,8 +139,18 @@ export const ConversationListItem = ({...props}) => {
                       label={
                         <ScreenReaderContent>
                           {props.isSelected
-                            ? I18n.t('%{subject} selected', {subject: conversationSubject})
-                            : I18n.t('%{subject} not selected', {subject: conversationSubject})}
+                            ? I18n.t('Message %{subject} from %{date} selected', {
+                                subject: conversationSubject,
+                                date: DateHelper.formatDateForDisplay(
+                                  props.conversation.lastMessageCreatedAt,
+                                ),
+                              })
+                            : I18n.t('Message %{subject} from %{date} not selected', {
+                                subject: conversationSubject,
+                                date: DateHelper.formatDateForDisplay(
+                                  props.conversation.lastMessageCreatedAt,
+                                ),
+                              })}
                         </ScreenReaderContent>
                       }
                       checked={props.isSelected}
@@ -207,6 +217,7 @@ export const ConversationListItem = ({...props}) => {
                         size="small"
                         withBackground={false}
                         withBorder={false}
+                        aria-pressed={!props.isUnread}
                       >
                         {props.isUnread ? <IconEmptySolid /> : <IconEmptyLine />}
                       </IconButton>
@@ -264,7 +275,7 @@ export const ConversationListItem = ({...props}) => {
                   )}
                 </Grid.Col>
               </Grid.Row>
-              <Grid.Row role='button'>
+              <Grid.Row role="button">
                 <Grid.Col>
                   <Focusable>
                     {({focused}) => {

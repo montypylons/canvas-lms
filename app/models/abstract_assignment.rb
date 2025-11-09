@@ -69,6 +69,9 @@ class AbstractAssignment < ActiveRecord::Base
   QUIZ_SUBMISSION_VERSIONS_LIMIT = 65
   QUIZZES_NEXT_TIMEOUT = 15.minutes
   QUIZZES_NEXT_IMPORTING_TIMEOUT = 30.minutes
+  QUIZZES_NEXT_QUIZ_TYPES = %w[graded_quiz graded_survey ungraded_survey].freeze
+  QUIZZES_NEXT_SURVEY_TYPES = %w[graded_survey ungraded_survey].freeze
+  ROLLCALL_ASSIGNMENT_TITLE = "Roll Call Attendance"
 
   attr_accessor(
     :resource_map,
@@ -140,6 +143,7 @@ class AbstractAssignment < ActiveRecord::Base
   has_one :external_tool_tag, class_name: "ContentTag", as: :context, inverse_of: :context, dependent: :destroy
   has_one :score_statistic, dependent: :destroy, inverse_of: :assignment, foreign_key: :assignment_id
   has_one :post_policy, dependent: :destroy, inverse_of: :assignment, foreign_key: :assignment_id
+  has_one :scheduled_post, dependent: :destroy, inverse_of: :assignment, foreign_key: :assignment_id
 
   has_many :moderation_graders, inverse_of: :assignment, foreign_key: :assignment_id
   has_many :moderation_grader_users, through: :moderation_graders, source: :user
@@ -231,6 +235,10 @@ class AbstractAssignment < ActiveRecord::Base
     validate :final_grader_ok?
   end
 
+  with_options if: :quiz_lti? do
+    validate :new_quizzes_type_ok?, if: -> { Account.site_admin.feature_enabled?(:new_quizzes_surveys) }
+  end
+
   accepts_nested_attributes_for :estimated_duration, allow_destroy: true
   accepts_nested_attributes_for :external_tool_tag, update_only: true, reject_if: proc { |attrs|
     # only accept the url, link_settings, content_type, content_id and new_tab params
@@ -271,7 +279,7 @@ class AbstractAssignment < ActiveRecord::Base
     self.group_category_id = nil
     self.rubric_association = nil
     self.submission_types = "online_text_entry" unless (submission_types_array - HORIZON_SUBMISSION_TYPES).empty?
-    self.workflow_state = "unpublished" if context_module_tags.none? { |t| t.tag_type == "context_module" && t.context_module&.published? }
+    self.workflow_state = "unpublished" if workflow_state == "published" && context_module_tags.none? { |t| t.tag_type == "context_module" && t.context_module&.published? }
   end
 
   def self.html_fields
@@ -361,6 +369,7 @@ class AbstractAssignment < ActiveRecord::Base
       duplicate_wiki_page: true,
       duplicate_discussion_topic: true,
       duplicate_plagiarism_tool_association: true,
+      duplicate_asset_processors: true,
       copy_title: nil,
       user: nil
     }
@@ -387,7 +396,7 @@ class AbstractAssignment < ActiveRecord::Base
 
     # Default to the last position of all active assignments in the group.  Clients can still
     # override later.  Just helps to avoid duplicate positions.
-    result.position = Assignment.active.where(assignment_group:).maximum(:position) + 1
+    result.position = Assignment.active.where(assignment_group:).maximum(:position) + 1 if assignment_group
     result.title =
       opts_with_default[:copy_title] || get_copy_title(self, t("Copy"), title)
 
@@ -450,6 +459,21 @@ class AbstractAssignment < ActiveRecord::Base
       result.rubric_association.skip_updating_points_possible = true
     end
 
+    if context.root_account.feature_enabled?(:lti_asset_processor) &&
+       opts_with_default[:duplicate_asset_processors] &&
+       lti_asset_processors.active.any?
+
+      result.save!
+
+      Lti::ImportHistory.register(source_lti_id: lti_context_id, target_lti_id: result.lti_context_id, root_account:)
+
+      lti_asset_processors.active.find_each do |asset_processor|
+        new_ap = asset_processor.dup
+        new_ap.assignment = result
+        new_ap.save!
+      end
+    end
+
     # Link the duplicated assignment to this assignment
     result.duplicate_of = self
 
@@ -475,11 +499,12 @@ class AbstractAssignment < ActiveRecord::Base
   def finish_duplicating
     return unless ["duplicating", "failed_to_duplicate"].include?(workflow_state)
 
-    self.workflow_state = if root_account.feature_enabled?(:course_copy_alignments)
-                            "outcome_alignment_cloning"
-                          else
-                            (duplicate_of&.workflow_state == "published" || !can_unpublish?) ? "published" : "unpublished"
-                          end
+    if root_account.feature_enabled?(:course_copy_alignments)
+      self.workflow_state = "outcome_alignment_cloning"
+      start_outcome_alignment_service_clone
+    else
+      self.workflow_state = (duplicate_of&.workflow_state == "published" || !can_unpublish?) ? "published" : "unpublished"
+    end
   end
 
   def finish_alignment_cloning
@@ -1200,6 +1225,8 @@ class AbstractAssignment < ActiveRecord::Base
       muted
       intra_group_peer_reviews
       anonymous_grading
+      peer_review_submission_required
+      peer_review_across_sections
     ].each { |attr| self[attr] = false if self[attr].nil? }
     self.graders_anonymous_to_graders = false unless grader_comments_visible_to_graders
   end
@@ -1274,7 +1301,7 @@ class AbstractAssignment < ActiveRecord::Base
       quiz.saved_by = :assignment
       quiz.workflow_state = published? ? "available" : "unpublished"
       quiz.save if quiz.changed?
-    elsif self.submission_types == "discussion_topic" && @saved_by != :discussion_topic
+    elsif self.submission_types == "discussion_topic" && !%i[discussion_topic sub_assignment].include?(@saved_by)
       topic = discussion_topic || context.discussion_topics.build(user: @updating_user)
       topic.message = description
       save_submittable(topic)
@@ -1605,6 +1632,8 @@ class AbstractAssignment < ActiveRecord::Base
     lti_asset_processors.find_each(&:destroy)
 
     comment_bank_items.destroy_all
+
+    scheduled_post&.destroy
 
     ScheduledSmartAlert.where(context_type: "Assignment", context_id: id).destroy_all
     ScheduledSmartAlert.where(context_type: "AssignmentOverride", context_id: assignment_override_ids).destroy_all
@@ -1960,11 +1989,11 @@ class AbstractAssignment < ActiveRecord::Base
     RequestCache.cache(locked_request_cache_key(user)) do
       locked = false
       assignment_for_user = overridden_for(user)
-      if assignment_for_user.unlock_at && assignment_for_user.unlock_at > Time.zone.now
+      if assignment_for_user.unlock_at && assignment_for_user.unlock_at > Time.zone.now && !context.enable_course_paces?
         locked = { object: assignment_for_user, unlock_at: assignment_for_user.unlock_at }
       elsif could_be_locked && (item = locked_by_module_item?(user, opts))
         locked = { object: self, module: item.context_module }
-      elsif assignment_for_user.lock_at && assignment_for_user.lock_at < Time.zone.now
+      elsif assignment_for_user.lock_at && assignment_for_user.lock_at < Time.zone.now && !context.enable_course_paces?
         locked = { object: assignment_for_user, lock_at: assignment_for_user.lock_at, can_view: true }
       else
         each_submission_type do |submission, _, short_type|
@@ -3031,6 +3060,10 @@ class AbstractAssignment < ActiveRecord::Base
     group_category_id.present?
   end
 
+  def has_groups?
+    has_group_category? && Group.active.where(group_category_id:).exists?
+  end
+
   def assign_peer_review(reviewer, reviewee)
     reviewer_submission = find_or_create_submission(reviewer)
     reviewee_submission = find_or_create_submission(reviewee)
@@ -3310,14 +3343,14 @@ class AbstractAssignment < ActiveRecord::Base
   }
 
   scope :due_between_for_user, lambda { |start, ending, user|
-    with_user_due_date(user).where(user_due_date: start..ending)
+    with_user_due_date(user).where(submissions: { cached_due_date: start..ending })
   }
 
   scope :with_user_due_date, lambda { |user|
-    from("(SELECT s.cached_due_date AS user_due_date, a.*
-          FROM #{Assignment.quoted_table_name} a
-          INNER JOIN #{Submission.quoted_table_name} AS s ON s.assignment_id = a.id
-          WHERE s.user_id = #{User.connection.quote(user.id_for_database)} AND s.workflow_state <> 'deleted') AS assignments").select(arel.projections, "user_due_date")
+    joins(:submissions)
+      .where(submissions: { user_id: user.id_for_database })
+      .where.not(submissions: { workflow_state: "deleted" })
+      .select(arel.projections, "submissions.cached_due_date")
   }
 
   scope :with_latest_due_date, lambda {
@@ -3940,6 +3973,10 @@ class AbstractAssignment < ActiveRecord::Base
     self.external_tool_tag_attributes = { content: tool, url: tool.url }
   end
 
+  def rollcall_assignment?
+    external_tool? && title == ROLLCALL_ASSIGNMENT_TITLE
+  end
+
   def discussion_topic?
     submission_types == "discussion_topic" && discussion_topic.present?
   end
@@ -4099,6 +4136,8 @@ class AbstractAssignment < ActiveRecord::Base
   # If you're going to be checking this for multiple assignments, you may want
   # to call .preload_unposted_anonymous_submissions on the lot of them first
   def anonymize_students?
+    return true if anonymous_participants?
+
     return false unless anonymous_grading?
 
     # Only anonymize students for moderated assignments if grades have not been published.
@@ -4179,6 +4218,30 @@ class AbstractAssignment < ActiveRecord::Base
     !!effective_post_policy&.post_manually?
   end
 
+  def post_scheduled_comments(run_at:, progress: nil)
+    return if scheduled_post.nil?
+    return if scheduled_post.post_comments_at != run_at
+
+    update_time = Time.zone.now
+
+    all_user_ids = []
+    submissions.in_batches do |submissions_batch|
+      user_ids = submissions_batch.pluck(:user_id)
+      all_user_ids.concat(user_ids)
+      User.clear_cache_keys(user_ids, :submissions)
+      submissions_batch.update_all(posted_comments_at: update_time, updated_at: update_time)
+      show_stream_items(submissions: submissions_batch)
+    end
+    progress.set_results(assignment_id: id, posted_comments_at: update_time, user_ids: all_user_ids) if progress.present? && all_user_ids.any?
+  end
+
+  def post_scheduled_submissions(run_at:, **)
+    return if scheduled_post.nil?
+    return if scheduled_post.post_grades_at != run_at
+
+    post_submissions(**)
+  end
+
   def post_submissions(progress: nil, submission_ids: nil, skip_updating_timestamp: false, posting_params: nil, skip_muted_changed: false, skip_content_participation_refresh: true)
     submissions = if submission_ids.nil?
                     self.submissions.active
@@ -4239,7 +4302,7 @@ class AbstractAssignment < ActiveRecord::Base
     user_ids = submissions.pluck(:user_id)
 
     User.clear_cache_keys(user_ids, :submissions)
-    submissions.update_all(posted_at: nil, updated_at: Time.zone.now) unless skip_updating_timestamp
+    submissions.update_all(posted_at: nil, posted_comments_at: nil, updated_at: Time.zone.now) unless skip_updating_timestamp
     submissions.in_workflow_state("graded").each(&:assignment_muted_changed) unless skip_muted_changed
     course.refresh_content_participation_counts_for_users(user_ids) unless skip_content_participation_refresh
     hide_stream_items(submissions:)
@@ -4380,6 +4443,25 @@ class AbstractAssignment < ActiveRecord::Base
     return false if has_group_category?
 
     rubric_self_assessment_enabled
+  end
+
+  def new_quizzes_type
+    settings&.dig("new_quizzes", "type") || "graded_quiz"
+  end
+
+  def anonymous_participants?
+    value = settings&.dig("new_quizzes", "anonymous_participants")
+    ActiveModel::Type::Boolean.new.cast(value) || false
+  end
+
+  def new_quizzes_type=(type)
+    self.settings ||= {}
+    self.settings["new_quizzes"] = (settings["new_quizzes"] || {}).merge({ "type" => type })
+  end
+
+  def anonymous_participants=(enabled)
+    self.settings ||= {}
+    self.settings["new_quizzes"] = (settings["new_quizzes"] || {}).merge({ "anonymous_participants" => ActiveModel::Type::Boolean.new.cast(enabled) || false })
   end
 
   private
@@ -4528,6 +4610,12 @@ class AbstractAssignment < ActiveRecord::Base
     end
   end
 
+  def new_quizzes_type_ok?
+    unless QUIZZES_NEXT_QUIZ_TYPES.include?(new_quizzes_type)
+      errors.add(:new_quizzes_type, I18n.t("is not a valid new quizzes type. Valid values are: %{types}", types: QUIZZES_NEXT_QUIZ_TYPES.join(", ")))
+    end
+  end
+
   def clear_moderated_grading_attributes(assignment)
     return if assignment.frozen?
 
@@ -4550,6 +4638,8 @@ class AbstractAssignment < ActiveRecord::Base
     self.automatic_peer_reviews = false
     self.anonymous_peer_reviews = false
     self.intra_group_peer_reviews = false
+    self.peer_review_submission_required = false
+    self.peer_review_across_sections = false
   end
 
   def instructor_selectable_states
@@ -4575,5 +4665,27 @@ class AbstractAssignment < ActiveRecord::Base
     progressions = ContextModuleProgression.for_course(context).where(current: true)
     progressions.in_batches(of: 10_000).update_all(current: false)
     User.where(id: progressions.pluck(:user_id)).touch_all
+  end
+
+  def start_outcome_alignment_service_clone
+    return unless duplicate_of && context
+
+    begin
+      delay_if_production(priority: Delayed::LOW_PRIORITY).call_outcome_alignment_service_clone
+    rescue => e
+      Rails.logger.error("Failed to start outcome alignment service clone: #{e.message}")
+      self.workflow_state = "failed_to_clone_outcome_alignment"
+      save
+    end
+  end
+
+  def call_outcome_alignment_service_clone
+    OutcomesService::Service.start_outcome_alignment_service_clone(
+      context,
+      original_assignment_id: duplicate_of.id,
+      copied_assignment_id: id,
+      new_context_id: context.id,
+      original_context_id: duplicate_of.course.id
+    )
   end
 end

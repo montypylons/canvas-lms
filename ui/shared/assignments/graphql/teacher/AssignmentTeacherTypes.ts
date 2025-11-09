@@ -39,7 +39,8 @@ export type LockInfoType = {
   isLocked: boolean
 }
 
-export type peerReviewsType = {
+export type PeerReviewsType = {
+  count: number
   enabled: boolean
 }
 
@@ -122,7 +123,7 @@ type SubmissionsType = {
 
 export type TeacherAssignmentType = {
   __typename?: string
-  id?: string
+  id: string
   gid?: string
   lid?: string
   name?: string
@@ -142,7 +143,7 @@ export type TeacherAssignmentType = {
   moduleItems?: ModuleItemType[]
   course: CourseType
   lockInfo?: LockInfoType
-  peerReviews?: peerReviewsType
+  peerReviews?: PeerReviewsType
   submissionTypes?: string[]
   allowedExtensions?: string[]
   allowedAttempts?: number
@@ -152,4 +153,141 @@ export type TeacherAssignmentType = {
   submissionsDownloads?: number
   submissions?: SubmissionsType
   suppressAssignment?: boolean
+}
+
+export interface CreateAllocationRuleInput {
+  assignmentId: string
+  assessorIds: string[]
+  assesseeIds: string[]
+  mustReview?: boolean
+  reviewPermitted?: boolean
+  appliesToAssessor?: boolean
+  reciprocal?: boolean
+}
+
+export type AllocationRuleType = {
+  _id: string
+  assessor: CourseStudent
+  assessee: CourseStudent
+  mustReview: boolean
+  reviewPermitted: boolean
+  appliesToAssessor: boolean
+}
+
+export interface CreateAllocationRuleResponse {
+  createAllocationRule: {
+    allocationRules: AllocationRuleType[]
+    allocationErrors: Array<{
+      message: string
+      attribute: string
+      attributeId: string
+    }>
+  }
+}
+
+export interface CourseStudent {
+  _id: string
+  name: string
+  peerReviewStatus: {
+    mustReviewCount: number
+    completedReviewsCount: number
+  }
+}
+
+export interface UpdateAllocationRuleInput {
+  ruleId: string
+  assessorIds: string[]
+  assesseeIds: string[]
+  mustReview: boolean
+  reviewPermitted: boolean
+  appliesToAssessor: boolean
+  reciprocal: boolean
+}
+
+export interface UpdateAllocationRuleResponse {
+  updateAllocationRule: {
+    allocationRules: Array<{
+      _id: string
+      mustReview: boolean
+      reviewPermitted: boolean
+      appliesToAssessor: boolean
+      assessor: CourseStudent
+      assessee: CourseStudent
+    }>
+    allocationErrors: Array<{
+      attributeId: string
+      message: string
+    }>
+  }
+}
+
+export interface DeleteAllocationRuleInput {
+  ruleId: string
+}
+
+export interface DeleteAllocationRuleResponse {
+  deleteAllocationRule: {
+    allocationRuleId: string
+  }
+}
+
+export interface CourseStudentsData {
+  course: {
+    usersConnection: {
+      nodes: CourseStudent[]
+    }
+  }
+}
+
+export interface CourseStudentsVariables {
+  courseId: string
+  filter?: {
+    searchTerm?: string
+    excludeTestStudents: boolean
+  }
+}
+
+export interface AssignedStudentsData {
+  assignment: {
+    assignedStudents: {
+      nodes: CourseStudent[]
+    }
+  }
+}
+
+export interface AssignedStudentsVariables {
+  assignmentId: string
+  filter?: {
+    searchTerm?: string
+  }
+}
+
+export interface AllocationRulesData {
+  assignment: {
+    allocationRules: {
+      rulesConnection: {
+        nodes: AllocationRuleType[]
+        pageInfo: {
+          hasNextPage: boolean
+          endCursor: string | null
+        }
+      }
+      count: number | null
+    }
+  }
+}
+
+export interface GraphQLPageData {
+  rules: AllocationRuleType[]
+  hasNextPage: boolean
+  endCursor: string | null
+  totalCount: number | null
+}
+
+export interface UseAllocationRulesResult {
+  rules: AllocationRuleType[]
+  totalCount: number | null
+  loading: boolean
+  error: any
+  refetch: (page: number) => Promise<{rules: AllocationRuleType[]; totalCount: number | null}>
 }

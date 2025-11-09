@@ -41,6 +41,21 @@ module Types
     MD
   end
 
+  class PeerReviewStatusType < ApplicationObjectType
+    description "Peer review status for a student on an assignment"
+
+    field :completed_reviews_count, Int, null: false, description: "Number of peer reviews the student has completed"
+    field :must_review_count, Int, null: false, description: "Number of peer reviews the student has been allocated"
+
+    def must_review_count
+      object[:must_review_count] || 0
+    end
+
+    def completed_reviews_count
+      object[:completed_reviews_count] || 0
+    end
+  end
+
   class UserType < ApplicationObjectType
     #
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -58,6 +73,8 @@ module Types
     implements GraphQL::Types::Relay::Node
     implements Interfaces::TimestampInterface
     implements Interfaces::LegacyIDInterface
+
+    connection_type_class TotalCountConnection
 
     global_id_field :id
 
@@ -134,9 +151,7 @@ module Types
       if domain_root_account.grants_any_right?(context[:current_user], :read_sis, :manage_sis) ||
          context[:course]&.grants_any_right?(context[:current_user], :read_sis, :manage_sis) ||
          object.grants_any_right?(context[:current_user], :read_sis, :manage_sis)
-        Loaders::AssociationLoader.for(User, :pseudonyms)
-                                  .load(object)
-                                  .then do
+        load_association(:pseudonyms).then do
           pseudonym = SisPseudonym.for(object,
                                        domain_root_account,
                                        type: :implicit,
@@ -154,9 +169,7 @@ module Types
       if domain_root_account.grants_any_right?(context[:current_user], :read_sis, :manage_sis) ||
          context[:course]&.grants_any_right?(context[:current_user], :read_sis, :manage_sis) ||
          object.grants_any_right?(context[:current_user], :read_sis, :manage_sis)
-        Loaders::AssociationLoader.for(User, :pseudonyms)
-                                  .load(object)
-                                  .then do
+        load_association(:pseudonyms).then do
           pseudonym = SisPseudonym.for(object,
                                        domain_root_account,
                                        type: :implicit,
@@ -199,24 +212,23 @@ module Types
                required: false
     end
 
-    # TODO: handle N+1
     field :login_id, String, null: true
     def login_id
       course = context[:course]
       return nil unless course
       return nil unless course.grants_right?(current_user, session, :view_user_logins)
 
-      pseudonym = SisPseudonym.for(
-        object,
-        course,
-        type: :implicit,
-        require_sis: false,
-        root_account: context[:domain_root_account],
-        in_region: true
-      )
-      return nil unless pseudonym
-
-      pseudonym.unique_id
+      load_association(:pseudonyms).then do
+        pseudonym = SisPseudonym.for(
+          object,
+          course,
+          type: :implicit,
+          require_sis: false,
+          root_account: context[:domain_root_account],
+          in_region: true
+        )
+        pseudonym&.unique_id
+      end
     end
 
     def enrollments(course_id: nil, current_only: false, order_by: [], exclude_concluded: false, horizon_courses: nil, sort: {})
@@ -274,24 +286,47 @@ module Types
                required: false
     end
     def enrollments_connection(course_id: nil, course_ids: nil, current_only: false, order_by: [], exclude_concluded: false, horizon_courses: nil, sort: {}, enrollment_types: nil)
-      # Check basic permission - return empty instead of nil
-      unless object == current_user || object.grants_right?(current_user, session, :read_profile)
+      unless object == current_user ||
+             object.grants_right?(current_user, session, :read_profile) ||
+             object.grants_right?(current_user, session, :read)
         return Enrollment.none
       end
 
-      # Start with user's enrollments, but only for courses where current_user has permission
       enrollments = object.enrollments.joins(:course)
 
-      # If not viewing own enrollments, filter to only courses where current_user has read permissions
       if object != current_user
-        # For GraphQL connections, we need to filter at SQL level. Use a subquery to find
-        # courses where the current user has enrollments (which grants read permission)
-        # TODO: This may be too restrictive - consider including completed courses where teacher had enrollment
-        permitted_course_ids = current_user.enrollments.select(:course_id)
-        enrollments = enrollments.where(course_id: permitted_course_ids)
+        domain_root_account = context[:domain_root_account]
+        has_manage_students = domain_root_account&.grants_right?(current_user, session, :manage_students)
+
+        unless has_manage_students
+          permitted_course_conditions = []
+
+          user_enrolled_courses = current_user.enrollments
+                                              .joins(:course)
+                                              .where(courses: { workflow_state: ["available", "completed"] })
+                                              .select(:course_id)
+
+          if user_enrolled_courses.exists?
+            permitted_course_conditions << "courses.id IN (#{user_enrolled_courses.to_sql})"
+          end
+
+          observer_courses = current_user.observer_enrollments
+                                         .active
+                                         .where(associated_user: object)
+                                         .select(:course_id)
+
+          if observer_courses.exists?
+            permitted_course_conditions << "courses.id IN (#{observer_courses.to_sql})"
+          end
+
+          if permitted_course_conditions.any?
+            enrollments = enrollments.where(permitted_course_conditions.join(" OR "))
+          else
+            return Enrollment.none
+          end
+        end
       end
 
-      # Apply course filtering - support both single course_id and multiple course_ids
       if course_id
         enrollments = enrollments.where(course_id:)
       elsif course_ids.present?
@@ -307,7 +342,6 @@ module Types
         enrollments = enrollments.where.not(workflow_state: "completed")
       end
 
-      # Filter by enrollment types if specified
       if enrollment_types.present?
         enrollments = enrollments.where(type: enrollment_types.map(&:to_s))
       end
@@ -613,19 +647,25 @@ module Types
       argument :end_date, GraphQL::Types::ISO8601DateTime, required: false, description: "End date for due date range filter"
       argument :include_no_due_date, Boolean, required: false, description: "Include assignments with no due date"
       argument :include_overdue, Boolean, required: false, description: "Include overdue assignments"
+      argument :observed_user_id, ID, required: false, description: "ID of the observed user"
       argument :only_submitted, Boolean, required: false, description: "Show only submitted assignments"
       argument :start_date, GraphQL::Types::ISO8601DateTime, required: false, description: "Start date for due date range filter"
     end
-    def course_work_submissions_connection(course_filter: nil, start_date: nil, end_date: nil, include_overdue: false, include_no_due_date: false, only_submitted: false)
+    def course_work_submissions_connection(course_filter: nil, start_date: nil, end_date: nil, include_overdue: false, include_no_due_date: false, only_submitted: false, observed_user_id: nil)
       return [] unless object == current_user
 
-      # Get active course enrollments
-      active_course_ids = object.enrollments
-                                .joins(:course)
-                                .where(courses: { workflow_state: "available" })
-                                .where(workflow_state: ["active", "invited"])
-                                .pluck(:course_id)
-                                .uniq
+      # Get active course enrollments using the same filtering as dashboard
+      active_course_ids = if observed_user_id.present?
+                            observed_user = User.find_by(id: observed_user_id)
+                            return [] unless observed_user
+
+                            # For observers, get the observed user's current courses
+                            observer_course_ids = object.cached_course_ids_for_observed_user(observed_user)
+                            observed_user_current_ids = observed_user.cached_current_course_ids_for_dashboard(domain_root_account: context[:domain_root_account])
+                            observer_course_ids & observed_user_current_ids
+                          else
+                            object.cached_current_course_ids_for_dashboard(domain_root_account: context[:domain_root_account])
+                          end
 
       if active_course_ids.empty?
         return []
@@ -639,24 +679,35 @@ module Types
 
       # Build a more efficient query for submissions instead of loading everything
       # Start with submissions for the user
+      user_for_submissions = observed_user_id.present? ? User.find_by(id: observed_user_id) : object
+      return [] unless user_for_submissions
+
       submissions_query = Submission
                           .joins(assignment: :course)
-                          .where(user: object)
+                          .where(user: user_for_submissions)
                           .where(assignments: { context_id: active_course_ids, context_type: "Course" })
                           .where(assignments: { workflow_state: "published" })
                           .where(courses: { workflow_state: "available" })
+                          .where.not(workflow_state: "deleted")
 
       # Filter by submission status
       submissions_query = if only_submitted
-                            submissions_query.where.not(submitted_at: nil)
+                            # Include submitted, graded, or excused submissions
+                            submissions_query.where(<<~SQL.squish)
+                              (submissions.excused = true
+                              OR submissions.workflow_state IN ('submitted', 'pending_review')
+                              OR (submissions.score IS NOT NULL AND submissions.workflow_state = 'graded'))
+                            SQL
                           else
-                            # Default: show unsubmitted, non-excused assignments (actionable items)
-                            submissions_query.where(submitted_at: nil).where("excused = FALSE OR excused IS NULL")
+                            # Default: show unsubmitted, non-excused, non-graded assignments (actionable items)
+                            # Match the logic in SubmissionStatisticsType.submissions_due_count
+                            submissions_query.where(submitted_at: nil)
+                                             .where("excused = FALSE OR excused IS NULL")
+                                             .where("(submissions.score IS NULL OR submissions.workflow_state != 'graded')")
                           end
 
       # Apply date filtering using flexible date parameters (skip for submitted items)
       unless only_submitted
-        today = Time.zone.now.beginning_of_day
         conditions = []
         params = []
 
@@ -674,8 +725,7 @@ module Types
 
         # Add overdue filter if requested
         if include_overdue
-          conditions << "(cached_due_date < ?) OR (cached_due_date IS NULL AND assignments.due_at < ?)"
-          params += [today, today]
+          submissions_query = submissions_query.merge(Submission.missing)
         end
 
         # Add no due date filter if requested
@@ -753,23 +803,31 @@ module Types
       MD
       argument :assignment_id, ID, required: false
       argument :course_id, ID, required: false
-      argument :limit, Integer, required: false
+      argument :limit, Integer, required: false, deprecation_reason: <<~MD.strip
+        The `limit` argument is deprecated and will be removed in a future version.
+        Please use the standard GraphQL connection argument `first` instead, which provides
+        identical functionality and ensures a consistent API experience across all connection fields.
+      MD
     end
     def comment_bank_items_connection(query: nil, course_id: nil, assignment_id: nil, limit: nil)
       return unless object == current_user
 
-      comments = current_user.comment_bank_items.shard(object)
-
+      comments = current_user.comment_bank_items
       comments = comments.where(ActiveRecord::Base.wildcard("comment", query.strip)) if query&.strip.present?
       comments = comments.where(course_id:) if course_id.present?
       comments = comments.where(assignment_id:) if assignment_id.present?
 
+      # Limit to be removed with the 2026-01-17 release
       # .to_a gets around the .shard() bug documented in FOO-1989 so that it can be properly limited.
       # After that bug is fixed and Switchman is upgraded in Canvas, we can remove the block below
       # and use the 'first' argument on the connection instead of 'limit'.
-      # Note that limit: 5 is currently being used by the Comment Library.
       if limit.present?
         comments = comments.limit(limit).to_a.first(limit)
+        if Account.site_admin.feature_enabled?(:send_metrics_for_comment_bank_items_connection_limit_used)
+          InstStatsd::Statsd.distributed_increment("graphql.user_type.comment_bank_items_connection.limit_used", tags: {
+                                                     cluster: Shard.current.database_server&.id || "unknown"
+                                                   })
+        end
       end
 
       comments
@@ -778,13 +836,17 @@ module Types
     field :discussion_participants_connection, Types::DiscussionParticipantType.connection_type, null: true do
       description "All discussion topic participants for the user, optionally filtered by announcement status"
       argument :filter, DiscussionParticipantFilterInputType, required: false
+      argument :observed_user_id, ID, "ID of the observed user", required: false
     end
-    def discussion_participants_connection(filter: {})
+    def discussion_participants_connection(filter: {}, observed_user_id: nil)
       return unless object == current_user
 
+      user_for_participants = observed_user_id.present? ? User.find_by(id: observed_user_id) : object
+      return DiscussionTopicParticipant.none unless user_for_participants
+
       # Start with user's discussion topic participants, joining discussion_topic for filtering
-      participants = current_user.discussion_topic_participants
-                                 .joins(:discussion_topic)
+      participants = user_for_participants.discussion_topic_participants
+                                          .joins(:discussion_topic)
 
       # Filter by announcement status if specified
       if filter[:is_announcement] == true
@@ -814,16 +876,24 @@ module Types
       )
 
       # Filter to only discussions in courses where user has active enrollment
-      # Use a subquery to avoid loading all enrollment IDs into memory
-      enrollment_subquery = current_user.enrollments
-                                        .active_by_date
-                                        .joins(:course)
-                                        .where(courses: { workflow_state: "available" })
-                                        .select(:course_id)
+      # Use cached_current_course_ids_for_dashboard for consistent filtering
+      active_course_ids = if observed_user_id.present?
+                            observed_user = User.find_by(id: observed_user_id)
+                            return DiscussionTopicParticipant.none unless observed_user
+
+                            # For observers, get the observed user's current courses
+                            observer_course_ids = current_user.cached_course_ids_for_observed_user(observed_user)
+                            observed_user_current_ids = observed_user.cached_current_course_ids_for_dashboard(domain_root_account: context[:domain_root_account])
+                            observer_course_ids & observed_user_current_ids
+                          else
+                            current_user.cached_current_course_ids_for_dashboard(domain_root_account: context[:domain_root_account])
+                          end
+
+      return DiscussionTopicParticipant.none if active_course_ids.empty?
 
       participants = participants.where(
         discussion_topics: {
-          context_id: enrollment_subquery,
+          context_id: active_course_ids,
           context_type: "Course"
         }
       )
@@ -847,8 +917,15 @@ module Types
       end
     end
 
-    field :comment_bank_items_count, Integer, null: true
+    field :comment_bank_items_count, Integer, null: true, deprecation_reason: <<~MD.strip
+      Use `commentBankItems.pageInfo.totalCount` instead. This field will be removed in a future version.
+    MD
     def comment_bank_items_count
+      if Account.site_admin.feature_enabled?(:send_metrics_for_comment_bank_items_count_used)
+        InstStatsd::Statsd.distributed_increment("graphql.user_type.comment_bank_items_count_used", tags: {
+                                                   cluster: Shard.current.database_server&.id || "unknown"
+                                                 })
+      end
       Loaders::CommentBankItemCountLoader.load(object)
     end
 
@@ -889,6 +966,23 @@ module Types
       return unless object == current_user
 
       object.inbox_labels
+    end
+
+    field :peer_review_status, PeerReviewStatusType, null: true do
+      description "Peer review status for assignments where peer reviews are enabled"
+    end
+    def peer_review_status
+      assignment_id = context[:assignment_id]
+      return nil unless assignment_id
+
+      assignment = Assignment.find_by(id: assignment_id)
+      return nil unless assignment
+
+      return nil unless assignment.grants_right?(current_user, :grade) &&
+                        assignment.context.feature_enabled?(:peer_review_allocation) &&
+                        assignment.peer_reviews
+
+      Loaders::PeerReviewStatusLoader.for(assignment_id).load(object.id)
     end
 
     field :activity_stream, ActivityStreamType, null: true do

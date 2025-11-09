@@ -548,8 +548,8 @@ module ActiveRecord
         let(:base_s1) { @shard1.activate { User.active } }
         let(:base_s2) { @shard2.activate { User.active } }
 
-        include_examples "query creation"
-        include_examples "query creation sharding"
+        it_behaves_like "query creation"
+        it_behaves_like "query creation sharding"
       end
 
       context "through a relation" do
@@ -557,8 +557,8 @@ module ActiveRecord
         let(:base_s1) { @shard1.activate { Account.create.users } }
         let(:base_s2) { @shard2.activate { Account.create.users } }
 
-        include_examples "query creation"
-        include_examples "query creation sharding"
+        it_behaves_like "query creation"
+        it_behaves_like "query creation sharding"
       end
 
       context "through a where query that references multiple shards" do
@@ -570,7 +570,7 @@ module ActiveRecord
         let(:base_s1) { @shard1.activate { User.where(id: [user_s1, user_s2]) } }
         let(:base_s2) { @shard2.activate { User.where(id: [user_s1, user_s2]) } }
 
-        include_examples "query creation sharding"
+        it_behaves_like "query creation sharding"
       end
     end
 
@@ -709,5 +709,34 @@ describe ActiveRecord::Migration::CommandRecorder do
                                       [:remove_foreign_key, [:accounts, :courses, { column: :course_template_id, if_exists: true }], nil],
                                       [:remove_column, [:accounts, :course_template_id, :integer, { limit: 8, if_exists: true }], nil],
                                     ])
+  end
+
+  describe "ValidateDateTimeFormat" do
+    let(:course) { Course.create!(name: "Test Course") }
+
+    context "with invalid datetime formats" do
+      it "adds an error when setting a datetime attribute to an integer" do
+        timestamp = Time.now.to_i
+        course.start_at = timestamp
+        expect(course.errors[:start_at]).to include("must be in ISO8601 format")
+        expect(course.start_at).to be_nil
+      end
+
+      it "adds an error when setting a datetime attribute to a numeric string" do
+        timestamp = Time.now.to_i.to_s
+        course.start_at = timestamp
+        expect(course.errors[:start_at]).to include("must be in ISO8601 format")
+        expect(course.start_at).to be_nil
+      end
+    end
+
+    context "with valid datetime formats" do
+      it "accepts ISO8601 formatted strings" do
+        iso_string = "2025-10-08T12:00:00Z"
+        course.start_at = iso_string
+        expect(course.errors[:start_at]).to be_empty
+        expect(course.start_at).not_to be_nil
+      end
+    end
   end
 end

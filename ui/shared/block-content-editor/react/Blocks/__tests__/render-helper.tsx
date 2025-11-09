@@ -18,13 +18,28 @@
 import React from 'react'
 import {Editor, Frame} from '@craftjs/core'
 import {render} from '@testing-library/react'
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
+import {Provider} from '../../utilities/fastContext'
+import {createStore} from '../../store'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
 
 export function renderBlock<T>(Block: React.FC<T>, props: T & React.Attributes) {
   return render(
-    <Editor resolver={{[Block.name]: Block}}>
-      <Frame>
-        <Block {...props} />
-      </Frame>
-    </Editor>,
+    <QueryClientProvider client={queryClient}>
+      <Provider store={createStore({aiAltTextGenerationURL: null, toolbarReorder: false})}>
+        <Editor resolver={{[Block.name]: Block}}>
+          <Frame>
+            <Block {...props} />
+          </Frame>
+        </Editor>
+      </Provider>
+    </QueryClientProvider>,
   )
 }

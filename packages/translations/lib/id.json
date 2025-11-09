@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "Kosongkan gambar"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Kosongkan file yang dipilih"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Kosongkan file yang dipilih: { filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Klik atau shift-klik untuk editor html."
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "Club (Suit)"
+    },
+    "collab_575ac7bc": {
+        "message": "Collab"
     },
     "collaborations_5c56c15f": {
         "message": "Kolaborasi"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "Latvia"
     },
+    "learn_ad3b3505": {
+        "message": "Belajar"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "Pelajari selengkapnya tentang tautan berdekatan"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "Operator"
     },
+    "options_3ab0ea65": {
+        "message": "Opsi"
+    },
     "or_9b70ccaa": {
         "message": "Atau"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "Silakan masukkan nama file"
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "Harap masukkan URL video yang valid dari platform yang didukung."
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "Silakan pilih file dari jenis yang didukung"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "Ikon Agama"
     },
+    "remove_f47dc62a": {
+        "message": "Hapus"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "Hapus { filename }"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Hapus gaya heading"
     },
     "remove_link_d1f2f4d0": {
         "message": "Hapus Tautan"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Hapus Media Studio"
     },
     "replace_all_d3d68b3": {
         "message": "Ganti Semua"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "Walaupun video Anda akan memiliki judul yang benar di browser, kami gagal memperbaruinya di database."
     },
+    "thumbnail_e0de666f": {
+        "message": "Gambar kecil"
+    },
     "timebar_a4d18443": {
         "message": "Bilah Waktu"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "Video player untuk { title }"
     },
+    "video_url_889d3263": {
+        "message": "URL Video"
+    },
     "vietnamese_e7a76583": {
         "message": "Vietnam"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "Webcam Anda mungkin sudah digunakan."
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "URL sematan YouTube"
     },
     "zeta_5ef24f0e": {
         "message": "Zeta"

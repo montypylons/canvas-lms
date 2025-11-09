@@ -106,12 +106,13 @@ class ContextModulesController < ApplicationController
       @allow_menu_tools = @context.grants_right?(@current_user, session, :manage_course_content_add) &&
                           (@menu_tools[:module_index_menu].present? || @menu_tools[:module_index_menu_modal].present?)
 
-      assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+      assign_to_tags = @context.account.allow_assign_to_differentiation_tags?
 
       new_quizzes_enabled = NewQuizzesFeaturesHelper.new_quizzes_enabled?(@context)
 
       hash = {
         course_id: @context.id,
+        CONTEXT_IS_AVAILABLE: @context.available?,
         CONTEXT_URL_ROOT: polymorphic_path([@context]),
         FILES_CONTEXTS: [{ asset_string: @context.asset_string }],
         MODULE_FILE_DETAILS: module_file_details,
@@ -935,6 +936,13 @@ class ContextModulesController < ApplicationController
 
     if authorized_action(@context, @current_user, %i[manage_course_content_add manage_course_content_edit])
       params[:item][:link_settings] = launch_dimensions
+
+      # Resolve position conflicts by finding the next available slot
+      if params[:item][:position].present? && params[:item][:position].to_i.positive?
+        resolved_position = @module.find_next_available_position(params[:item][:position].to_i)
+        params[:item] = params[:item].merge(position: resolved_position)
+      end
+
       @tag = @module.add_item(params[:item])
       unless @tag&.valid?
         body = @tag.nil? ? { error: "Could not find item to tag" } : @tag.errors

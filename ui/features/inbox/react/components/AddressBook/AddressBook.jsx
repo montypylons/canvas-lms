@@ -88,6 +88,8 @@ export const AddressBook = ({
   const textInputRef = useRef(null)
   const componentViewRef = useRef(null)
   const popoverInstanceId = useRef(`address-book-menu-${nanoid()}`)
+  const textInputId = useRef(`address-book-input-${nanoid()}`)
+  const descriptionId = useRef(`${textInputId.current}-description`)
   const [selectedItem, setSelectedItem] = useState(null)
   const [selectedMenuItems, setSelectedMenuItems] = useState([])
   const [isLimitReached, setLimitReached] = useState(false)
@@ -524,6 +526,9 @@ export const AddressBook = ({
       if (onUserFilterSelect) {
         onUserFilterSelect(menuItem)
       }
+      setTimeout(() => {
+        setOnSuccess(I18n.t('Added %{menuItemName}', {menuItemName: menuItem.name}), true)
+      }, 100)
     } else {
       setIsSubMenuSelection(true)
       onSelect(menuItem, isContext, isBackButton, isSubmenu)
@@ -586,6 +591,7 @@ export const AddressBook = ({
               }}
               renderTrigger={
                 <TextInput
+                  id={textInputId.current}
                   placeholder={selectedMenuItems.length === 0 ? searchPlaceholder : null}
                   renderLabel={
                     <ScreenReaderContent>
@@ -605,12 +611,14 @@ export const AddressBook = ({
                     }
                   }}
                   onKeyDown={inputKeyHandler}
+                  role="combobox"
                   aria-expanded={isMenuOpen}
-                  aria-activedescendant={`address-book-menu-item-${selectedItem?.id}-${selectedItem?.itemType}`}
-                  type="search"
-                  aria-owns={popoverInstanceId.current}
+                  type="text"
                   aria-label={ariaAddressBookLabel}
                   aria-autocomplete="list"
+                  aria-controls={popoverInstanceId.current}
+                  aria-haspopup="listbox"
+                  aria-describedby={descriptionId.current}
                   autoComplete="off"
                   inputRef={ref => {
                     textInputRef.current = ref
@@ -618,6 +626,9 @@ export const AddressBook = ({
                   value={inputValue}
                   onChange={e => {
                     onTextChange(e.target.value)
+                    setIsMenuOpen(true)
+                  }}
+                  onClick={() => {
                     setIsMenuOpen(true)
                   }}
                   data-testid={`${props.renderingContext ?? ''}-address-book-input`}

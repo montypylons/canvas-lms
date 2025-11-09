@@ -80,7 +80,7 @@ describe "selective_release module item assign to tray", :ignore_js_errors do
     end
 
     it "shows the correct icon type and title for a classic quiz" do
-      skip("only new quizzes are being made right now")
+      skip("2025-08-22 only new quizzes are being made right now LX-3351")
       go_to_modules
       module_header_expand_toggles.first.click
 
@@ -97,7 +97,7 @@ describe "selective_release module item assign to tray", :ignore_js_errors do
     end
 
     it "shows the correct icon type and title for an NQ quiz" do
-      skip("only new quizzes are being made right now")
+      skip("2025-08-22 only new quizzes are being made right now LX-3351")
       go_to_modules
       module_header_expand_toggles.first.click
 
@@ -291,7 +291,6 @@ describe "selective_release module item assign to tray", :ignore_js_errors do
 
     context "differentiation tags" do
       before :once do
-        @course.account.enable_feature!(:assign_to_differentiation_tags)
         @course.account.tap do |a|
           a.settings[:allow_assign_to_differentiation_tags] = { value: true }
           a.save!

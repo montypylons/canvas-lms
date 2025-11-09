@@ -214,61 +214,6 @@ describe GradebooksController do
                                                   })
         end
       end
-
-      describe "asset processor functionality" do
-        context "with online_text_entry submission" do
-          before do
-            @assignment.submit_homework(@student, submission_type: "online_text_entry", body: "test submission")
-          end
-
-          it "includes processors and reports in submission data if user can read grade" do
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_processors).and_return([{ id: 1, title: "Test Processor" }])
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_reports).and_return([{ id: 1, priority: 0 }])
-
-            get "grade_summary", params: { course_id: @course.id, id: @student.id }
-
-            submission = assigns[:js_env][:submissions].find { |s| s[:assignment_id] == @assignment.id }
-            expect(submission).to have_key(:asset_processors)
-            expect(submission[:asset_processors]).to eq([{ id: 1, title: "Test Processor" }])
-            expect(submission).to have_key(:asset_reports)
-            expect(submission[:asset_reports]).to eq([{ id: 1, priority: 0 }])
-            expect(submission).to have_key(:submission_type)
-            expect(submission[:submission_type]).to eq("online_text_entry")
-          end
-
-          it "includes processors and reports in submission data if grades are hidden" do
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_processors).and_return([{ id: 1, title: "Test Processor" }])
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_reports).and_return([{ id: 1, priority: 0 }])
-            # ensure the grades are hidden
-            allow(@assignment).to receive(:user_can_read_grades?).and_return(false)
-            submission = @assignment.grade_student(@student, grade: 10, grader: @teacher).first
-            submission.update(posted_at: nil)
-
-            get "grade_summary", params: { course_id: @course.id, id: @student.id }
-
-            submission = assigns[:js_env][:submissions].find { |s| s[:assignment_id] == @assignment.id }
-            expect(submission).to have_key(:asset_processors)
-            expect(submission[:asset_processors]).to eq([{ id: 1, title: "Test Processor" }])
-            expect(submission).to have_key(:asset_reports)
-            expect(submission[:asset_reports]).to eq([{ id: 1, priority: 0 }])
-            expect(submission).to have_key(:submission_type)
-            expect(submission[:submission_type]).to eq("online_text_entry")
-          end
-
-          it "does not include processors and reports in submission data if user cannot read grades" do
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_processors).and_return([{ id: 1, title: "Test Processor" }])
-            allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_reports).and_return([{ id: 1, priority: 0 }])
-            allow_any_instance_of(Submission).to receive(:user_can_read_grade?).and_return(false)
-
-            get "grade_summary", params: { course_id: @course.id, id: @student.id }
-
-            submission = assigns[:js_env][:submissions].find { |s| s[:assignment_id] == @assignment.id }
-            expect(submission).not_to have_key(:asset_processors)
-            expect(submission).not_to have_key(:asset_reports)
-            expect(submission).not_to have_key(:submission_type)
-          end
-        end
-      end
     end
 
     context "when logged in as a teacher" do
@@ -322,13 +267,6 @@ describe GradebooksController do
         get :grade_summary, params: { course_id: @course.id, id: @student.id }
         assignment_id = assigns.dig(:js_env, :assignment_groups, 0, :assignments, 0, :id)
         expect(assignment_id).to eq @assignment.id
-      end
-
-      it "returns nil for asset_reports" do
-        allow_any_instance_of(AssetProcessorReportHelper).to receive(:asset_reports).and_return([{ id: 1, priority: 0 }])
-        get "grade_summary", params: { course_id: @course.id, id: @student.id }
-        submission = assigns[:js_env][:submissions].find { |s| s[:assignment_id] == @assignment.id }
-        expect(submission[:asset_reports]).to be_nil
       end
     end
 
@@ -389,6 +327,33 @@ describe GradebooksController do
       @user.reload
       get "grade_summary", params: { course_id: @course.id, id: @student.id }
       assert_unauthorized
+    end
+
+    context "with default_student_gradebook_view set to true" do
+      before do
+        @course.enable_feature!(:outcome_gradebook)
+        @course.enable_feature!(:student_outcome_gradebook)
+        @course.enable_feature!(:default_to_learning_mastery_gradebook)
+        @course.default_student_gradebook_view = true
+        @course.save!
+        user_session(@student)
+      end
+
+      it "sets default_student_grade_summary_tab to 'outcomes'" do
+        get "grade_summary", params: { course_id: @course.id, id: @student.id }
+        expect(assigns[:js_env][:default_student_grade_summary_tab]).to eq("outcomes")
+      end
+
+      context "when feature flags are disabled" do
+        before do
+          @course.disable_feature!(:default_to_learning_mastery_gradebook)
+        end
+
+        it "does not set default_student_grade_summary_tab" do
+          get "grade_summary", params: { course_id: @course.id, id: @student.id }
+          expect(assigns[:js_env][:default_student_grade_summary_tab]).to be_nil
+        end
+      end
     end
 
     it "does not allow access for an observer linked in a different course" do
@@ -1552,7 +1517,6 @@ describe GradebooksController do
 
         context ":differentiation_tags" do
           before :once do
-            @course.account.enable_feature! :assign_to_differentiation_tags
             @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
             @course.account.save!
             @course.account.reload
@@ -1751,7 +1715,7 @@ describe GradebooksController do
           @user.set_preference(:gradebook_version, "2")
         end
 
-        include_examples "working download"
+        it_behaves_like "working download"
       end
 
       context "with teacher that prefers Individual View" do
@@ -1759,7 +1723,7 @@ describe GradebooksController do
           @user.set_preference(:gradebook_version, "srgb")
         end
 
-        include_examples "working download"
+        it_behaves_like "working download"
       end
     end
 
@@ -3056,8 +3020,8 @@ describe GradebooksController do
       before do
         @course.account.enable_feature!(:discussion_checkpoints)
         assignment = @course.assignments.create!(has_sub_assignments: true)
-        assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, due_at: 2.days.from_now)
-        assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, due_at: 3.days.from_now)
+        @sub1 = assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, due_at: 2.days.from_now)
+        @sub2 = assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, due_at: 3.days.from_now)
         @topic = @course.discussion_topics.create!(assignment:, reply_to_entry_required_count: 1)
       end
 
@@ -3087,17 +3051,6 @@ describe GradebooksController do
         expect(reply_to_topic_submission.score).to eq 10
       end
 
-      it "raises an error if no sub assignment tag is provided" do
-        user_session(@teacher)
-        post(
-          "update_submission",
-          params: post_params,
-          format: :json
-        )
-        expect(response).to have_http_status :bad_request
-        expect(json_parse.dig("errors", "base")).to eq "Must provide a valid sub assignment tag when grading checkpointed discussions"
-      end
-
       it "ignores checkpoints when the feature flag is disabled" do
         @course.account.disable_feature!(:discussion_checkpoints)
         user_session(@teacher)
@@ -3109,6 +3062,71 @@ describe GradebooksController do
         expect(response).to be_successful
         expect(reply_to_topic_submission.score).to be_nil
         expect(@topic.assignment.submissions.find_by(user: @student).score).to eq 10
+      end
+
+      it "returns SubAssignment submissions for active submissions" do
+        user_session(@teacher)
+        post(
+          "update_submission",
+          params: post_params.merge(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC),
+          format: :json
+        )
+        expect(response).to be_successful
+        json = response.parsed_body
+        submission_json = json.first["submission"]
+        expect(submission_json["sub_assignment_submissions"]).to be_an(Array)
+        expect(submission_json["sub_assignment_submissions"].length).to eq 2
+      end
+
+      it "does not return deleted sub assignment submissions" do
+        user_session(@teacher)
+        @sub1.destroy
+        post(
+          "update_submission",
+          params: post_params.merge(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY),
+          format: :json
+        )
+        expect(response).to be_successful
+        json = response.parsed_body
+        submission_json = json.first["submission"]
+        expect(submission_json["sub_assignment_submissions"].length).to eq 1
+        expect(submission_json["has_sub_assignment_submissions"]).to be true
+      end
+
+      it "returns empty array for sub_assignment_submissions and false for has_sub_assignment_submissions when there are no sub assignment submissions" do
+        user_session(@teacher)
+        @sub1.destroy
+        @sub2.destroy
+        post(
+          "update_submission",
+          params: post_params.merge(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC),
+          format: :json
+        )
+        expect(response).to be_successful
+        json = response.parsed_body
+        submission_json = json.first["submission"]
+        expect(submission_json["sub_assignment_submissions"]).to eq []
+        expect(submission_json["has_sub_assignment_submissions"]).to be false
+      end
+
+      describe "SubAssignmentSubmissionSerializer integration" do
+        before do
+          user_session(@teacher)
+        end
+
+        it "uses the serializer to process sub-assignment submissions" do
+          expect(Checkpoints::SubAssignmentSubmissionSerializer).to receive(:serialize).with(
+            assignment: @topic.assignment,
+            user_id: @student.id
+          ).and_call_original
+
+          post(
+            "update_submission",
+            params: post_params.merge(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC),
+            format: :json
+          )
+          expect(response).to be_successful
+        end
       end
     end
   end
@@ -3234,6 +3252,13 @@ describe GradebooksController do
         expect(assigns[:js_env].fetch(:MANAGE_GRADES)).to be true
       end
 
+      it "includes VIEW_ALL_GRADES in js_env for platform speedgrader" do
+        Account.site_admin.enable_feature!(:platform_service_speedgrader)
+        @assignment.publish
+        get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id, platform_sg: true }
+        expect(assigns[:js_env].fetch(:VIEW_ALL_GRADES)).to be true
+      end
+
       it "sets MANAGE_GRADES to false for users without manage_grades permission" do
         @assignment.publish
         Account.site_admin.enable_feature!(:platform_service_speedgrader)
@@ -3248,6 +3273,22 @@ describe GradebooksController do
         user_session(ta)
         get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id, platform_sg: true }
         expect(assigns[:js_env].fetch(:MANAGE_GRADES)).to be false
+      end
+
+      it "sets VIEW_ALL_GRADES to false for users without view_all_grades permission" do
+        Account.site_admin.enable_feature!(:platform_service_speedgrader)
+        @assignment.publish
+
+        # Create a user with only manage_grades permission
+        ta = User.create!
+        @course.enroll_ta(ta)
+        role = ta.enrollments.first.role
+        @course.root_account.role_overrides.create!(permission: :view_all_grades, enabled: false, role:)
+        @course.root_account.role_overrides.create!(permission: :manage_grades, enabled: true, role:)
+
+        user_session(ta)
+        get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id, platform_sg: true }
+        expect(assigns[:js_env].fetch(:VIEW_ALL_GRADES)).to be false
       end
     end
 
@@ -3329,6 +3370,20 @@ describe GradebooksController do
         @course.root_account.enable_feature!(:assignment_comment_library)
         get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
         expect(js_env.fetch(:assignment_comment_library_feature_enabled)).to be true
+      end
+
+      context "comment library v2" do
+        it "sets use_comment_library_v2 to true when enabled" do
+          Account.site_admin.enable_feature!(:use_comment_library_v2)
+          get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
+          expect(js_env.fetch(:use_comment_library_v2)).to be true
+        end
+
+        it "sets use_comment_library_v2 to false when disabled" do
+          Account.site_admin.disable_feature!(:use_comment_library_v2)
+          get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
+          expect(js_env.fetch(:use_comment_library_v2)).to be false
+        end
       end
 
       it "sets outcomes keys" do

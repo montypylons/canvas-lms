@@ -291,14 +291,6 @@ describe FilesController do
       assert_unauthorized
     end
 
-    it "respects user context" do
-      skip("investigate cause for failures beginning 05/05/21 FOO-1950")
-      user_session(@teacher)
-      assert_page_not_found do
-        get "show", params: { user_id: @user.id, id: @file.id }, format: "html"
-      end
-    end
-
     it "doesn't allow an assignment_id to bypass other auth checks" do
       assignment1 = @course.assignments.create!(name: "an assignment")
 
@@ -313,7 +305,7 @@ describe FilesController do
       expect(response).not_to be_ok
     end
 
-    it "renders files with limited access flag" do
+    it "allows file access even when limited access for students is enabled" do
       enable_limited_access_for_students
 
       user_session(@student)
@@ -1127,12 +1119,12 @@ describe FilesController do
         expect(assigns[:show_left_side]).to be false
       end
 
-      it "renders unauthorized when account restricts file access for user" do
+      it "allows access even when account restricts file access for user" do
         user_session(@student)
         @course.account.root_account.enable_feature!(:restrict_student_access)
         allow(@course.account).to receive(:restricted_file_access_for_user?).with(@student).and_return(true)
         get "show", params: { course_id: @course.id, id: @file.id }
-        expect(response).to be_unauthorized
+        expect(response).to be_successful
       end
 
       it "allows access when account does not restrict file access for user" do
@@ -2394,17 +2386,7 @@ describe FilesController do
       expect(response).to be_redirect
     end
 
-    it "returns the same jwt if requested twice" do
-      enable_cache do
-        user_session @teacher
-        locations = Array.new(2) do
-          get("image_thumbnail", params: { uuid: image.uuid, id: image.id }).location
-        end
-        expect(locations[0]).to eq(locations[1])
-      end
-    end
-
-    it "returns the different jwts if no_cache is passed" do
+    it "returns different jwt if requested twice" do
       enable_cache do
         user_session @teacher
         locations = Array.new(2) do
@@ -2413,64 +2395,95 @@ describe FilesController do
         expect(locations[0]).not_to eq(locations[1])
       end
     end
-  end
 
-  describe "GET 'image_thumbnail_plain'" do
-    before :once do
-      @course.root_account.enable_feature!(:file_association_access)
-    end
-
-    context "without InstFS" do
-      let(:image) do
-        local_storage!
-        @teacher.attachments.create!(uploaded_data: stub_png_data)
+    context "with no UUID" do
+      before :once do
+        @course.root_account.enable_feature!(:file_association_access)
       end
 
-      it "returns a non-token url for local storage" do
-        local_storage!
-        user_session @teacher
-        location = get("image_thumbnail_plain", params: { id: image.id, no_cache: true }).location
-        expect(location).to match(%r{/images/thumbnails/show/#{image.thumbnail.id}$})
-      end
-    end
+      context "without InstFS" do
+        let(:image) do
+          local_storage!
+          @teacher.attachments.create!(uploaded_data: stub_png_data)
+        end
 
-    context "with InstFS enabled" do
-      let(:image) { @teacher.attachments.create!(uploaded_data: stub_png_data, instfs_uuid: "1234") }
-
-      it "returns default 'no_pic' thumbnail if attachment not found" do
-        user_session @teacher
-        get "image_thumbnail_plain", params: { id: image.id + 1 }
-        expect(response).to redirect_to("/images/no_pic.gif")
-      end
-
-      it "returns different jwts (because of JTI) if requested twice" do
-        enable_cache do
+        it "returns a non-token url for local storage" do
+          local_storage!
           user_session @teacher
-          locations = Array.new(2) do
-            get("image_thumbnail_plain", params: { id: image.id }).location
-          end
-          expect(locations[0]).not_to eq(locations[1])
+          location = get("image_thumbnail", params: { id: image.id, no_cache: true }).location
+          expect(location).to match(%r{/images/thumbnails/show/#{image.thumbnail.id}$})
         end
       end
 
-      it "returns a proper jwt token" do
-        user_session @teacher
-        token = get("image_thumbnail_plain", params: { id: image.id, no_cache: true }).location.split("?token=")[1]
-        expect { Canvas::Security.decode_jwt(token, [InstFS.jwt_secret]) }.not_to raise_error
-      end
+      context "with InstFS enabled" do
+        let(:image) { attachment_model(context: @teacher, uploaded_data: stub_png_data, content_type: "image/png", instfs_uuid: "1234") }
 
-      it "redirects to default no_pic thumbnail if access_allowed returns false" do
-        allow_any_instance_of(FilesController).to receive(:access_allowed).and_return(false)
-        user_session @teacher
-        get "image_thumbnail_plain", params: { id: image.id }
-        expect(response).to redirect_to("/images/no_pic.gif")
-      end
+        it "returns default 'no_pic' thumbnail if attachment not found" do
+          user_session @teacher
+          get "image_thumbnail", params: { id: image.id + 1 }
+          expect(response).to redirect_to("/images/no_pic.gif")
+        end
 
-      it "returns a 302 if access_allowed returns true" do
-        allow_any_instance_of(FilesController).to receive(:access_allowed).and_return(true)
-        user_session @teacher
-        get "image_thumbnail_plain", params: { id: image.id }
-        expect(response).to be_redirect
+        it "returns different jwts (because of JTI) if requested twice" do
+          enable_cache do
+            user_session @teacher
+            locations = Array.new(2) do
+              get("image_thumbnail", params: { id: image.id }).location
+            end
+            expect(locations[0]).not_to eq(locations[1])
+          end
+        end
+
+        context "with profile pictures" do
+          it "does not add a jti if the thumbnail is a user's profile picture" do
+            enable_cache do
+              user_session @teacher
+              @teacher.avatar_image = { "url" => thumbnail_image_plain_url(image), "type" => "attachment" }
+              @teacher.save!
+              token = get("image_thumbnail", params: { id: image.id, no_cache: true }).location.split("?token=")[1]
+              claims = Canvas::Security.decode_jwt(token, [InstFS.jwt_secret])
+              expect(claims["jti"]).not_to be_present
+            end
+          end
+
+          context "with sharding" do
+            specs_require_sharding
+
+            it "works with cross-shard thumbnails" do
+              @shard1.activate do
+                @shard1_user = user_factory(active_user: true)
+                @shard1_att = attachment_model(context: @shard1_user, uploaded_data: stub_png_data, content_type: "image/png", instfs_uuid: "1234")
+              end
+
+              user_session(@shard1_user)
+              @shard1_user.avatar_image = { "url" => thumbnail_image_plain_url(@shard1_att), "type" => "attachment" }
+              @shard1_user.save!
+              token = get("image_thumbnail", params: { id: @shard1_att.id, no_cache: true }).location.split("?token=")[1]
+              claims = Canvas::Security.decode_jwt(token, [InstFS.jwt_secret])
+              expect(claims["jti"]).not_to be_present
+            end
+          end
+        end
+
+        it "returns a proper jwt token" do
+          user_session @teacher
+          token = get("image_thumbnail", params: { id: image.id, no_cache: true }).location.split("?token=")[1]
+          expect { Canvas::Security.decode_jwt(token, [InstFS.jwt_secret]) }.not_to raise_error
+        end
+
+        it "redirects to default no_pic thumbnail if access_allowed returns false" do
+          allow_any_instance_of(FilesController).to receive(:access_allowed).and_return(false)
+          user_session @teacher
+          get "image_thumbnail", params: { id: image.id }
+          expect(response).to redirect_to("/images/no_pic.gif")
+        end
+
+        it "returns a 302 if access_allowed returns true" do
+          allow_any_instance_of(FilesController).to receive(:access_allowed).and_return(true)
+          user_session @teacher
+          get "image_thumbnail", params: { id: image.id }
+          expect(response).to be_redirect
+        end
       end
     end
   end

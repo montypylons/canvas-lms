@@ -386,6 +386,49 @@ describe "submissions/show" do
     end
   end
 
+  describe "SpeedGrader link" do
+    let(:html) { Nokogiri::HTML5.fragment(response.body) }
+
+    before(:once) do
+      @course = Course.create!
+      @student = @course.enroll_user(User.create!, "StudentEnrollment", active_all: true).user
+      @teacher = @course.enroll_user(User.create!, "TeacherEnrollment", active_all: true).user
+      @assignment = @course.assignments.create!
+      @submission = @assignment.submissions.find_by(user: @student)
+    end
+
+    before do
+      assign(:assignment, @assignment)
+      assign(:context, @course)
+      assign(:submission, @submission)
+    end
+
+    it "shows SpeedGrader link when user has manage_grades permission" do
+      assign(:current_user, @teacher)
+      render "submissions/show"
+      speedgrader_link = html.at_css('a[href*="speed_grader"]')
+      expect(speedgrader_link).to be_present
+      expect(speedgrader_link.text).to include("SpeedGrader")
+    end
+
+    it "shows SpeedGrader link when user has view_all_grades permission" do
+      @ta = @course.enroll_user(User.create!, "TaEnrollment", active_all: true).user
+      @course.account.role_overrides.create!(permission: "view_all_grades", role: ta_role, enabled: true)
+
+      assign(:current_user, @ta)
+      render "submissions/show"
+      speedgrader_link = html.at_css('a[href*="speed_grader"]')
+      expect(speedgrader_link).to be_present
+    end
+
+    it "does not show SpeedGrader link when user is a student" do
+      assign(:current_user, @student)
+      render "submissions/show"
+      speedgrader_link = html.at_css('a[href*="speed_grader"]')
+      expect(speedgrader_link).not_to be_present
+    end
+  end
+
   context "comments sidebar" do
     describe "non-owner comment visibility" do
       let(:student) { User.create! }
@@ -801,6 +844,66 @@ describe "submissions/show" do
       media_comment = comment_list.css(".comment .comment").map { |comment| comment.text.strip }.first
       expect(comment_text.include?("good job!")).to be true
       expect(media_comment.include?("This is a media comment")).to be true
+    end
+  end
+
+  describe "asset report status containers" do
+    let_once(:assignment) { @course.assignments.create!(submission_types: "online_text_entry") }
+    let_once(:student) do
+      course_with_user("StudentEnrollment", course: @course, active_all: true).user
+    end
+    let_once(:submission) do
+      assignment.submit_homework(student, submission_type: "online_text_entry", body: "my text")
+    end
+
+    before do
+      assign(:assignment, assignment)
+      assign(:context, @course)
+      assign(:current_user, student)
+      assign(:submission, submission)
+    end
+
+    context "when submission is online_text_entry" do
+      it "renders asset report text entry status container with correct data attributes" do
+        render "submissions/show"
+
+        expect(response.body).to include('id="asset_report_status_container"')
+        expect(response.body).to match(/id="asset_report_status_container"[^>]*data-attempt="#{submission.attempt}"/)
+        expect(response.body).to match(/id="asset_report_status_container"[^>]*data-submission-id="#{submission.id}"/)
+        expect(response.body).to match(/id="asset_report_status_container"[^>]*data-submission-type="online_text_entry"/)
+      end
+
+      it "renders asset report modal mount point" do
+        render "submissions/show"
+
+        expect(response.body).to include('id="asset_report_modal"')
+      end
+    end
+
+    context "when submission is not online_text_entry" do
+      let(:upload_assignment) { @course.assignments.create!(submission_types: "online_upload") }
+      let(:upload_submission) do
+        upload_assignment.submission_for_student(student)
+      end
+
+      before do
+        assign(:assignment, upload_assignment)
+        assign(:submission, upload_submission)
+        assign(:context, @course)
+        assign(:current_user, student)
+      end
+
+      it "does not render text entry status container" do
+        render "submissions/show"
+
+        expect(response.body).not_to include('id="asset_report_status_container"')
+      end
+
+      it "still renders asset report modal mount point" do
+        render "submissions/show"
+
+        expect(response.body).to include('id="asset_report_modal"')
+      end
     end
   end
 end

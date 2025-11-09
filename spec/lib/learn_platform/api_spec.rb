@@ -26,8 +26,6 @@ describe LearnPlatform::Api do
     account_model
     default_settings = api.learnplatform.default_settings
     default_settings["base_url"] = "http://www.example.com"
-    default_settings["username"] = "user"
-    default_settings["password"] = "pass"
     default_settings["jwt_issuer"] = "service-name"
     default_settings["jwt_secret"] = "service-secret"
     PluginSetting.create!(name: api.learnplatform.id, settings: default_settings)
@@ -115,6 +113,14 @@ describe LearnPlatform::Api do
         api.products({ company_id: 2 })
         api.products({ company_id: 1 })
         api.products({ company_id: 2 })
+      end
+    end
+
+    it "does not cache LP error responses" do
+      enable_cache do
+        expect(CanvasHttp).to receive(:get).and_return(error_response).twice
+        api.products
+        api.products
       end
     end
   end

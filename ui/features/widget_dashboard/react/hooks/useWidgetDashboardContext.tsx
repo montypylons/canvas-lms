@@ -34,6 +34,7 @@ interface DashboardPreferences {
   dashboard_view: string
   hide_dashcard_color_overlays: boolean
   custom_colors: Record<string, string>
+  learner_dashboard_tab_selection?: 'dashboard' | 'courses'
 }
 
 export interface SharedCourseData {
@@ -41,7 +42,7 @@ export interface SharedCourseData {
   courseCode: string
   courseName: string
   currentGrade: number | null
-  gradingScheme: 'letter' | 'percentage'
+  gradingScheme: 'percentage' | Array<[string, number]>
   lastUpdated: string
 }
 
@@ -50,6 +51,7 @@ const WidgetDashboardContext = createContext<{
   observedUsersList: ObservedUser[]
   canAddObservee: boolean
   currentUser: CurrentUser | null
+  observedUserId: string | null
   currentUserRoles: string[]
   sharedCourseData: SharedCourseData[]
 }>({
@@ -61,6 +63,7 @@ const WidgetDashboardContext = createContext<{
   observedUsersList: [],
   canAddObservee: false,
   currentUser: null,
+  observedUserId: null,
   currentUserRoles: [],
   sharedCourseData: [],
 })
@@ -71,6 +74,7 @@ export const WidgetDashboardProvider = ({
   observedUsersList,
   canAddObservee,
   currentUser,
+  observedUserId,
   currentUserRoles,
   sharedCourseData,
 }: {
@@ -79,6 +83,7 @@ export const WidgetDashboardProvider = ({
   observedUsersList?: ObservedUser[]
   canAddObservee?: boolean
   currentUser?: CurrentUser | null
+  observedUserId?: string | null
   currentUserRoles?: string[]
   sharedCourseData?: SharedCourseData[]
 }) => {
@@ -88,6 +93,7 @@ export const WidgetDashboardProvider = ({
       observedUsersList: observedUsersList ?? widgetDashboardDefaultProps.observedUsersList,
       canAddObservee: canAddObservee ?? widgetDashboardDefaultProps.canAddObservee,
       currentUser: currentUser ?? widgetDashboardDefaultProps.currentUser,
+      observedUserId: observedUserId ?? widgetDashboardDefaultProps.observedUserId,
       currentUserRoles: currentUserRoles ?? widgetDashboardDefaultProps.currentUserRoles,
       sharedCourseData: sharedCourseData ?? widgetDashboardDefaultProps.sharedCourseData,
     }),
@@ -96,6 +102,7 @@ export const WidgetDashboardProvider = ({
       observedUsersList,
       canAddObservee,
       currentUser,
+      observedUserId,
       currentUserRoles,
       sharedCourseData,
     ],
@@ -117,10 +124,12 @@ export const widgetDashboardDefaultProps = {
     dashboard_view: 'cards',
     hide_dashcard_color_overlays: false,
     custom_colors: {},
+    learner_dashboard_tab_selection: 'dashboard' as const,
   },
   observedUsersList: [],
   canAddObservee: false,
   currentUser: null,
+  observedUserId: null,
   currentUserRoles: [],
   sharedCourseData: [],
 }

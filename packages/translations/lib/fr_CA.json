@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "Effacer l’image"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Effacer le fichier sélectionné"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Effacer le fichier sélectionné : { filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Cliquez ou cliquez en maintenant enfoncé la touche majuscule (MAJ) pour l’éditeur HTML."
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "Trèfle (combinaison)"
+    },
+    "collab_575ac7bc": {
+        "message": "Collaboration"
     },
     "collaborations_5c56c15f": {
         "message": "Collaborations"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "Letton"
     },
+    "learn_ad3b3505": {
+        "message": "Apprendre"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "En apprendre davantage sur les liens adjacents"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "Opérateurs"
     },
+    "options_3ab0ea65": {
+        "message": "Options"
+    },
     "or_9b70ccaa": {
         "message": "Ou"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "Veuillez saisir un nom de fichier"
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "Veuillez saisir une URL vidéo valide provenant d’une plateforme prise en charge."
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "Veuillez sélectionner un fichier d’un type pris en charge"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "Icône Religion"
     },
+    "remove_f47dc62a": {
+        "message": "Retirer"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "Retirer { filename }"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Retirer le style d’entête"
     },
     "remove_link_d1f2f4d0": {
         "message": "Retirer le lien"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Supprimer Studio Media"
     },
     "replace_all_d3d68b3": {
         "message": "Remplacer tout"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "Bien que votre vidéo ait le bon titre dans le navigateur, nous n''avons pas réussi à la mettre à jour dans la base de données."
     },
+    "thumbnail_e0de666f": {
+        "message": "Vignette"
+    },
     "timebar_a4d18443": {
         "message": "Barre de temps"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "Lecteur vidéo pour { title }"
     },
+    "video_url_889d3263": {
+        "message": "URL de la vidéo"
+    },
     "vietnamese_e7a76583": {
         "message": "Vietnamien"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "Votre webcam est peut-être en cours d''utilisation."
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "URL d’intégration dans YouTube"
     },
     "zeta_5ef24f0e": {
         "message": "Zeta"

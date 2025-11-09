@@ -979,6 +979,10 @@ he:
             start: 
               parameters: 
                 header: "התחלה ב:"
+    edp_student_activity_csv_parameters: 
+      custom_reports: 
+        edp: 
+          all_terms: "כל התקופות/תנאים"
     embry_riddle_activity_report_csv_parameters: 
       account_reports: 
         embry_riddle: 
@@ -2130,6 +2134,7 @@ he:
   all_dates_fields_must_be_present_and_formatted_cor_3a0fe925: "כל שדות התאריך חייבים בתוכן בפורמט הנכון"
   all_day_fb42c4fc: "כל היום"
   all_finished_time_to_publish_your_course_click_the_b6f07217: "האם הכל מוכן? הגיע המועד לפרסום הקורס! יש להקליק על הכפתור שבהמשך כדי להפוך את הקורס לרשמי!. הפרסום יאפשר למשתמשים להתחיל ולהשתתף בקורס. "
+  all_grades_for_students_in_this_course_will_no_lon_a32bf5d4: "כל הציונים של תלמידים בקורס זה לא יהיו גלויים יותר. ניתן לאחזר את הציונים מאוחר יותר בעזרת החזרת הרישום הצולב של הקורס, אך בינתיים הציונים לתלמידים אלו יגיעו מהקורס המקורי."
   all_grading_period_sets_must_have_a_title_799538f: "נדרשת כותרת לכל תקופות ההערכה"
   all_grading_periods_77974940: "כל תקופת חישוב הציונים"
   all_grading_periods_must_have_a_title_a1a38d87: "כל תקופות חישוב הציונים צריכות לקבל כותרת"
@@ -2322,6 +2327,7 @@ he:
   announcements_a4b8ed4a: הכרזות
   announcements_loaded_e9335d5f: "הכרזות נטענו"
   announcements_tutorial_tray_994287d6: "מגש מדריך ההכרזות"
+  anonymity_1cfb09ca: אנונימיות
   anonymize_all_annotations_made_by_instructors_on_s_4f2b70a5: "הפוך לאנונימי את כל ההערות שבוצעו ע\"י מנחים על הגשות של מטלה זו ב SpeedGrader"
   anonymous_e1b8ad27: אנונימי
   anonymous_grading_ccb5045c: "מתן ציונים אנונימי"
@@ -2438,6 +2444,7 @@ he:
   are_you_sure_you_want_to_cancel_changes_you_made_m_c5210496: "האם בטוחים שרוצים לבטל? שינויים שבוצעו לא ישמרו"
   are_you_sure_you_want_to_cancel_your_appointment_w_dbbd27eb: "בטוחים שרוצים לבטל את הפגישה עם %{name}?"
   are_you_sure_you_want_to_copy_to_the_final_mark_th_28a7e7b3: "בטוח/ה שרוצה להעתיק אל הרישום הסופי? הדבר ידרוס את הרישום הקיים."
+  are_you_sure_you_want_to_de_cross_list_this_sectio_fae8a399: "בטוח/ה שרוצה לבטל את הרישום הצולב של הקבצה זו?"
   are_you_sure_you_want_to_deactivate_this_user_they_3fdaab79: "האם בטוחים שרוצים להשבית משתמש זה? הדבר ימנע מהתלמיד/ה השתתפות בקורס כל עוד נמצא/ת במצב לא פעיל."
   are_you_sure_you_want_to_delete_these_count_items_148e98ba: 
     many: "בטוח/ה שרוצה לבטל את %{count} פריטי החשבון האלה?"
@@ -2668,6 +2675,12 @@ he:
       two: "%{count} תלמידים "
   assignment_path_selected_e80191d1: "מסלול המטלה נבחר"
   assignment_preview_3833e819: "תצוגה מקדימה של %{assignment}"
+  assignment_quiz_type: 
+    quiz_type: "סוג הבוחן"
+    quiz_type_options: 
+      graded_quiz: "בוחן מוערך"
+      graded_survey: "סקר מוערך"
+      ungraded_survey: "סקר שלא להערכה"
   assignment_selection_6bff05c4: "בחירת משימה"
   assignment_title_82b4422e: "כותרת המטלה:"
   assignment_title_8a707dd2: "כותרת משימה"
@@ -3857,6 +3870,8 @@ he:
       slot_limit: "הגבל חלון זמן זה ל"
       users: משתמשים.
     edit_assignment: 
+      ? " group"
+      : "קבוצה:"
       calendar: "יומן:"
       due: "תאריך יעד:"
       group: "קבוצה:"
@@ -3959,11 +3974,17 @@ he:
         goBackToInclude: "האם ברצנוך לחזור אחורנית כדי לכלול:"
         notAllSectionsAssigned: "פריט זה יוקצה לכל ההקבצות ."
     name_is_required: "דרוש שם!"
+    next: הבא
+    next_month: "החודש הבא"
+    next_week: "שבוע הבא"
     no_dates_error: "יש להגדיר לפחות תאריך וזמן אחד."
     no_groups: "לא נמצאו קבוצות"
     no_users: "לא נמצאו משתמשים"
     ok: OK
     open_appointment_on_this_day: "יש חלון פגישה פתוח ביום זה"
+    previous: קודם
+    previous_month: "החודש הקודם"
+    previous_week: "שבוע שעבר"
     prompts: 
       delete_assignment: "האם אתה בטוח שברצונך למחוק את המשימה?"
       delete_event: "האם אתה בטוח שאתה רוצה למחוק ארוע זה?"
@@ -4793,6 +4814,7 @@ he:
     errors: 
       cannot_shift_and_remove: "אין אפשרות להגדיר את shift_dates ואת remove_dates בעת ובעונה אחת"
       import_error: "שגיאת ייבוא:"
+    file_copy_error: "העתקת קובץ \"%{name}\" נכשלה"
     missing_content_links_message: "ההפניות הבאות אינן ניתנות לפענוח:"
     missing_content_links_title: "נמצאו קישורים חסרים בתוכן המיובא"
     unexpected_error: "אירעה שגיאה בלתי צפויה, ויש ליצור קשר עם צוות התמיכה."
@@ -5987,12 +6009,14 @@ he:
   course_sis_7ae8f649: "המערכת הבית ספרית של הקורס"
   course_sis_df8b379: "המערכת הבית ספרית של הקורס"
   course_sis_id_bbed1a60: "מזהה הקורס במערכת הבית ספרית"
+  course_sis_id_c026d0f3: "מזהה SIS של הקורס"
   course_sis_id_cd834b3c: "מזהה קורס במערכת הבית ספרית"
   course_sis_id_sis_id_or_canvas_id_4d323f5c: "מזהה קורס  מערכת בית ספרית או של קנבס  SIS ID (SIS_ID:####) OR Canvas ID: (###)"
   course_starts_at_3a01f9da: "קורס מתחיל ב"
   course_statistics: 
     unknown: "לא ידוע"
   course_storage_391e1bd: "שטח איחסון של הקורס"
+  course_summary_99c39cea: "סיכום קורס"
   course_syllabus_5de1b0af: "סילבוס הקורס"
   course_users: 
     greater_than_three: "מונח החיפוש צריך להיות בעל שלשה תוים ומעלה."
@@ -6918,6 +6942,9 @@ he:
   day_9d999bec: יום
   day_s_7cc1231f: יום/ימים
   days_late_a3a721b0: איחורים
+  de_cross_list_this_section_6f7b5984: "ביטול רישום צולב של הקבצה זו"
+  de_cross_list_this_section_774a827c: "ניתוק רישום צולב מהקבצה זו"
+  de_cross_listing_section_c2ee371: "ביטול רישום צולב של הקבצה..."
   deactivate_this_key_3e79a2b5: "השבת מפתח זה"
   deactivate_user_86c09036: "השבתת תלמיד"
   debugging_f98fcd74: מדאבג
@@ -7846,6 +7873,7 @@ he:
     roles: 
       designer: מתכנן
       designer_with_indefinite_article: מתכנן
+      instructors: מנחים
       observer: משקיף
       observer_with_indefinite_article: משקיף
       student: תלמיד
@@ -8558,6 +8586,7 @@ he:
         folder_locked: "התיקיה \"%{folder},\" הכוללת קובץ זה, ננעלה."
     no_preview: 
       file_previews: 
+        download: הורדה
         download_file: "הורדת *שם קובץ*"
         no_preview_available: "אין תצוגה מקדימה לקובץ זה"
   file_s_will_be_included_on_all_pages_in_the_canvas_80569935: "קבץ(ים) יכללו בכל הדפים באפליקצית שולחן העבודה של קנבס"
@@ -10560,6 +10589,7 @@ he:
   j_5226008a: j
   japan_81_d1832e9d: "יפן (+81)"
   javascript_file_fc27c32b: "קובץ JavaScript "
+  job_handler_9d3d1007: "מנהל תהליכי עיבוד"
   jobs: 
     columns: 
       attempt: ניסיון
@@ -13434,12 +13464,14 @@ he:
   next_month_749b1778: "החודש הבא"
   next_month_b55a387c: "חודש הבא"
   next_steps_ce0f0d0c: "הצעדים הבאים"
+  next_week_9df347b3: "שבוע הבא"
   nickname_1e6da3ad: "שם חיבה"
   nickname_7df95b09: "שם חיבה:"
   no_74e9b590: לא
   no_active_user_with_that_id_was_found_b8fb5e14: "לא נמצא משתמש פעיל עם מזהה זה."
   no_assignment_name_adbb215b: "חסר שם משימה"
   no_assignment_selected_65d9e422: "לא נבחרה אף משימה"
+  no_assignments_found_2097cfc1: "לא נמצאו משימות"
   no_associated_terms_13bacefc: "תקופות לימודים לא שויכו"
   no_broken_links_found_38d951e3: "לא נמצאו קישורים שגויים"
   no_collaboration_apps_3bbd30ce: "אין אפליקציות שיתופי פעולה"
@@ -14201,6 +14233,8 @@ he:
   page_name_21defa75: "שם דף"
   page_name_is_required_d8c2736e: "נדרש שם דף"
   page_not_found_2b0d05f5: "הדף לא נמצא"
+  page_title: 
+    edit_ai_experience: "עריכת %{title}"
   page_title_106304bb: "כותרת דף"
   page_title_d1a22bbf: "כותרת דף"
   page_views: 
@@ -14914,6 +14948,7 @@ he:
   previous_snapshots_d8cd4820: "צילומי מצב קודמים"
   previous_time_cc96b361: "קודם (%{time})"
   previous_timestamp_19343a58: "קודם (%{timestamp})"
+  previous_week_dddf1ef2: "שבוע שעבר"
   primary_brand_color_db79b428: "צבע מיתוג עיקרי"
   primary_button_3a98f4bc: "כפתור ראשי"
   primary_button_text_1f55d27b: "טקסט כפתור ראשי"
@@ -17003,6 +17038,7 @@ he:
   remove_email_address_b1820820: "הסרת כתובת דוא\"ל"
   remove_empty_attachment_b2aea632: "הסרת תצריף ריק"
   remove_f47dc62a: הסרה
+  remove_filename_1b74ef2a: "הסרת %{fileName}"
   remove_filename_87f3781e: "הסרת %{filename}"
   remove_filter_68de01d4: "ביטול מסנן"
   remove_from_course_6fb47aee: "הסרה מהקורס"
@@ -17011,6 +17047,7 @@ he:
   remove_media_comment_f4afdb4b: "הסרת תגובת מדיה"
   remove_name_as_leader_3e03780a: "הסרת %{name} מהובלה"
   remove_name_from_group_487cce74: "הסרת %{name} מהקבוצה"
+  remove_never_drop_rule_b9d08c64: "הסרת הכלל \"אין לדלג\""
   remove_recipient_name_a6b83cef: "הסרת נמען %{name}"
   remove_row_c198da5a: "הסרת שורה"
   remove_student_from_recipients_4b206e35: "הסרת %{student} מרשימת הנמענים"
@@ -17019,6 +17056,7 @@ he:
   remove_this_item_from_the_module_4b2ceab7: "הסרת פריט זה מהמודול"
   remove_this_rubric_from_my_list_c7d80704: "הסרת רובריקה זו מהרשימה שלי"
   remove_this_section_9a88ca43: "הסרת הקבצה זו"
+  remove_unsaved_never_drop_rule_bde18827: "הסרת כללי \"אין לדלג\" שלא נשמרו"
   remove_user_from_section_5556f465: "הסרת תלמיד מהקבצה"
   removed_user_as_group_leader_bb69330f: " %{user} הוסר כמוביל קבוצה"
   rename_45608f54: "שינוי שם"
@@ -17096,6 +17134,7 @@ he:
   review_now_318a6a3e: "סקור/י כעת"
   reviewer_b993ce28: בודק/ת
   reviewers_successfully_added_bd4b629a: "בודקים נתווספו בהצלחה"
+  revision_history_abfd1cfd: "היסטורית גירסאות"
   rich_content_editor_2708ef21: "עורך תוכן עשיר"
   right_sidebar_logo_5483dc0a: "לוגו של סרגל הצד"
   role: 
@@ -17205,6 +17244,8 @@ he:
   role_successfully_updated_4317e6a4: "תפקיד עודכן בהצלחה"
   roles: 
     based_on_type: "מבוסס על %{base_type}"
+    designer: מתכנן
+    designers: מתכננים
     edit_role: 
       role_name_label: "שם תפקיד"
     new_role: 
@@ -17213,6 +17254,8 @@ he:
       role_type: "סוג בסיסי"
       save: שמירה
       saving: שומר...
+    observer: משקיף
+    observers: "משקיפים "
     permission_button: 
       rolebutton: 
         disable: ניטרול
@@ -17230,6 +17273,12 @@ he:
       account_roles: "תפקידי חשבון"
       course_roles: "תפקידי קורס"
       page_header_title: "הרשאות חשבון "
+    student: תלמיד
+    students: תלמידים
+    ta: "עוזר הוראה"
+    tas: "עוזרי הוראה"
+    teacher: מורה
+    teachers: מורים
   rootFoldersFinder: 
     course_files: "קבצי קורס"
     group_files: "קבצי קבוצה"
@@ -17558,6 +17607,7 @@ he:
   section_sis_94511bcd: "הקבצה במערכת הבית ספרית SIS"
   section_sis_id_6f989834: "מזהה הקבצה במערכת הבית ספרית"
   section_starts_at_65eaed1: "ההקבצה מתחילה ב"
+  section_successfully_de_cross_listed_df3b64e: "רישום צולב של ההקבצה בוטל בהצלחה"
   sections: 
     section_created: "ההקבצה נוצרה בהצלחה"
     section_creation_failed: "יצירת הקבצה נכשלה"
@@ -17622,6 +17672,7 @@ he:
         crosslist_this_section: "ביצוע רישום צולב להקבצה זו"
         current_enrollments: "הרשמות נוכחיות"
         decrosslist_section: "ביטול רישום צולב של הקבצה זו"
+  sections_are_an_additional_way_to_organize_users_t_57551e0: "הקבצות הן דרך נוספת לארגן משתמשים. הדבר יאפשר ללמד כיתות מרובות מאותו הקורס, כך שניתן להשתמש באותו תוכן קורס בכל המקומות. ניתן להעביר תלמיד להקבצה אחרת, או להוסיף/ להסיר הרשמות לסעיף בדף מתחת. תלמידים חייבים להיות לפחות בהקבצה אחת בכל רגע נתון."
   see_rubric_results_62a6447d: "עיון בתוצאות הרובריקה"
   see_scoring_details_f7fd1f3b: "עיון בפרטי הציונים"
   see_some_lti_tools_that_work_great_with_canvas_16ef75a0: "*ראה/י כמה כלי למידה משולבים* אשר עובדים בצורה יפה עם קנבס"
@@ -17685,6 +17736,7 @@ he:
   select_one_of_the_options_c8b0c6e4: "בחירת אחת האפשרויות:"
   select_prerequisite_module_57894963: "בחירת מודול המהווה דרישה מוקדמת"
   select_prerequite_module_e9042bb0: "בחירת מודול המהווה דרישה מוקדמת"
+  select_profile_picture_172176b6: "בחירת תמונת פרופיל"
   select_question_bank_508e5c08: "בחירת בנק שאלות"
   select_specific_content_5382e7ea: "בחירת תוכן ספציפי"
   select_student_name_caaff244: "בחירת התלמיד %{name}"
@@ -18563,6 +18615,7 @@ he:
   show_course_sections_for_course_name_5f715702: "הצגת הקבצות של קורס %{name}"
   show_courses_navigation_menu_7ad1a8d4: "הצגת תפריט ניווט קורסים"
   show_current_grade_5bf4e0d9: "הצגת ההערכה הנוכחית"
+  show_d6f24222: הצג/י
   show_dashboard_card_view_41ebd6c6: "הצגה בתצוגת כרטיס לוח המחוונים"
   show_dashcard_view_76078ecb: "הצגה בתצוגה גליון גרפי"
   show_deleted_replies_a2e0a36f: "הצגת תשובות שבוטלו"
@@ -20850,6 +20903,8 @@ he:
         anyone: "כל אחד"
         only_teachers: "רק מורים"
         teachers_and_students: "מורים ותלמידים"
+      create_page_title: "דף הבא"
+      edit_page_title: "עריכת %{title}"
       editing_roles: 
         anyone: "כל אחד"
         can_edit_page: "יכול/ה לערוך דף זה"

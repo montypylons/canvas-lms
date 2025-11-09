@@ -49,12 +49,19 @@ module Api::V1::Submission
     hash["body"] = nil if assignment.quiz? && !submission.user_can_read_grade?(current_user)
 
     if includes.include?("sub_assignment_submissions") && context.discussion_checkpoints_enabled?
-      hash["has_sub_assignment_submissions"] = assignment.has_sub_assignments
-      hash["sub_assignment_submissions"] = (assignment.has_sub_assignments &&
-                                           assignment.sub_assignments&.map do |sub_assignment|
-                                             sub_assignment_submission = sub_assignment.submissions.active.find_by(user_id: submission.user_id)
-                                             sub_assignnment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, current_user, session, context, includes, params, avatars)
-                                           end) || []
+      if assignment.has_sub_assignments
+        result = Checkpoints::SubAssignmentSubmissionSerializer.serialize(assignment:, user_id: submission.user_id)
+
+        sub_assignment_submissions = result[:submissions]&.filter_map do |sub_assignment_submission|
+          sub_assignment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, current_user, session, context, includes, params, avatars)
+        end
+
+        hash["has_sub_assignment_submissions"] = result[:has_active_submissions]
+        hash["sub_assignment_submissions"] = sub_assignment_submissions || []
+      else
+        hash["has_sub_assignment_submissions"] = false
+        hash["sub_assignment_submissions"] = []
+      end
     end
 
     if includes.include?("submission_history")
@@ -388,7 +395,13 @@ module Api::V1::Submission
     # If one is including the group in the submission response, we can
     # assume they want the information for identification and sorting
     # issues and not the full group object.
-    { id: attempt.group_id, name: attempt.group.try(:name) }
+    if attempt.group_id.present?
+      { id: attempt.group_id, name: attempt.group.try(:name) }
+    else
+      # Use attempt.user.groups (preloaded association) to avoid N+1 queries
+      group = attempt.user&.groups&.find { |g| g.group_category_id == attempt.assignment&.group_category_id }
+      { id: group&.id, name: group&.name }
+    end
   end
 
   def quiz_submission_attempt_json(attempt, assignment, user, session, context = nil, params)
@@ -414,7 +427,7 @@ module Api::V1::Submission
     hash
   end
 
-  def sub_assignnment_submission_json(
+  def sub_assignment_submission_json(
     submission,
     assignment,
     current_user,
@@ -440,7 +453,9 @@ module Api::V1::Submission
       "grade",
       "score",
       "user_id",
-      "grade_matches_current_submission"
+      "grade_matches_current_submission",
+      "submitted_at",
+      "points_deducted"
     )
     sub_assignment_json["sub_assignment_tag"] = assignment.sub_assignment_tag
     sub_assignment_json["published_grade"] = submission.published_grade

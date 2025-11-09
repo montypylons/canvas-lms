@@ -24,7 +24,6 @@ import {Link} from '@instructure/ui-link'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {getSubmissionStatus, getTypeIcon} from '../widgets/CourseWorkWidget/utils'
 import type {CourseWorkItem as CourseWorkItemType} from '../../hooks/useCourseWork'
-import {CourseCode} from './CourseCode'
 import {useResponsiveContext} from '../../hooks/useResponsiveContext'
 
 const I18n = createI18nScope('widget_dashboard')
@@ -38,9 +37,19 @@ export function CourseWorkItem({item}: CourseWorkItemProps) {
   const {isMobile} = useResponsiveContext()
 
   return (
-    <Flex.Item key={item.id} overflowY="hidden">
+    <Flex.Item
+      key={item.id}
+      overflowY="hidden"
+      role="group"
+      aria-label={item.title}
+      data-testid={`listed-course-work-item-${item.id}`}
+    >
       <View as="div" margin="small" background="primary">
-        <Flex gap="small" alignItems="center" wrap={isMobile ? 'wrap' : 'no-wrap'}>
+        <Flex
+          gap="small"
+          alignItems={isMobile ? 'start' : 'center'}
+          direction={isMobile ? 'column' : 'row'}
+        >
           {!isMobile && (
             <Flex.Item>
               <View
@@ -48,7 +57,7 @@ export function CourseWorkItem({item}: CourseWorkItemProps) {
                 background="secondary"
                 borderRadius="medium"
                 padding={isMobile ? 'small' : 'medium'}
-                margin="0 0 x-small 0"
+                margin="0 0 0 0"
                 themeOverride={{
                   backgroundSecondary: submissionStatus.color.background,
                 }}
@@ -58,29 +67,28 @@ export function CourseWorkItem({item}: CourseWorkItemProps) {
             </Flex.Item>
           )}
           <Flex.Item shouldGrow shouldShrink>
-            <Flex direction="column" gap="xx-small">
-              <Link
-                href={item.htmlUrl}
-                isWithinText={false}
-                data-testid={`course-work-item-link-${item.id}`}
-              >
-                <Text weight="bold" size="small">
-                  {item.title}
-                </Text>
-              </Link>
-              <Flex gap="x-small" alignItems="center" wrap="wrap">
-                <Flex.Item>
-                  <CourseCode courseId={item.course.id} size="x-small" />
-                </Flex.Item>
-                <Flex.Item>
-                  <Text size="x-small" color="secondary">
-                    {item.course.name}
+            <Flex direction="column" gap="0">
+              <Flex.Item>
+                <Link
+                  href={item.htmlUrl}
+                  isWithinText={false}
+                  data-testid={`course-work-item-link-${item.id}`}
+                >
+                  <Text weight="bold" size="small">
+                    {item.title}
                   </Text>
-                </Flex.Item>
-              </Flex>
-              <Text size="x-small" color="secondary">
-                {item.points != null && `${I18n.t('%{points} pts', {points: item.points})}`}
-              </Text>
+                </Link>
+              </Flex.Item>
+              <Flex.Item>
+                <Text size="x-small" color="secondary">
+                  {item.course.name}
+                </Text>
+              </Flex.Item>
+              <Flex.Item>
+                <Text size="x-small" color="secondary">
+                  {item.points != null && `${I18n.t('%{points} pts', {points: item.points})}`}
+                </Text>
+              </Flex.Item>
             </Flex>
           </Flex.Item>
           <Flex.Item>
@@ -91,6 +99,7 @@ export function CourseWorkItem({item}: CourseWorkItemProps) {
               padding="x-small"
               display="inline-block"
               themeOverride={{backgroundPrimary: submissionStatus.color.background}}
+              data-testid={`${submissionStatus.type}-status-pill-${item.id}`}
             >
               <Flex gap="xx-small" alignItems="center">
                 {submissionStatus.icon && (

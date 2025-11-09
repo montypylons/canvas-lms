@@ -21,14 +21,15 @@ import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
+import {List} from '@instructure/ui-list'
 import TemplateWidget from '../TemplateWidget/TemplateWidget'
 import CourseWorkFilters, {type DateFilterOption} from '../../shared/CourseWorkFilters'
 import type {BaseWidgetProps, CourseOption} from '../../../types'
 import {useSharedCourses} from '../../../hooks/useSharedCourses'
-import {useCourseWork} from '../../../hooks/useCourseWork'
-import {usePagination} from '../../../hooks/usePagination'
+import {useCourseWorkPaginated} from '../../../hooks/useCourseWork'
 import {convertDateFilterToParams} from '../../../utils/dateUtils'
 import {CourseWorkItem as CourseWorkItemComponent} from '../../shared/CourseWorkItem'
+import {DEFAULT_PAGE_SIZE} from '../../../constants/pagination'
 
 const I18n = createI18nScope('widget_dashboard')
 
@@ -52,33 +53,26 @@ const CourseWorkWidget: React.FC<BaseWidgetProps> = ({
   const courseFilter = selectedCourse === 'all' ? undefined : selectedCourse.replace('course_', '')
   const dateParams = convertDateFilterToParams(selectedDateFilter)
 
-  // Fetch course work items with infinite pagination
+  const pageSize = DEFAULT_PAGE_SIZE.COURSE_WORK
+
+  // Fetch course work with pagination
   const {
-    data,
+    currentPage: currentPageData,
+    currentPageIndex,
+    totalPages,
+    goToPage,
+    resetPagination,
+    refetch,
     isLoading: courseWorkLoading,
     error: courseWorkError,
-    refetch,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isFetchingPreviousPage,
-  } = useCourseWork({
-    pageSize: 4,
+  } = useCourseWorkPaginated({
+    pageSize,
     courseFilter,
     ...dateParams,
   })
 
-  const {currentPageIndex, paginationProps, resetPagination} = usePagination({
-    hasNextPage: !!hasNextPage,
-    totalPagesLoaded: data?.pages?.length || 0,
-    fetchNextPage,
-    isFetchingNextPage,
-    isFetchingPreviousPage,
-  })
-
-  // Get current page data from infinite query
-  const currentPage = data?.pages?.[currentPageIndex]
-  const allCourseWorkItems = currentPage?.items || []
+  // Get current page data
+  const allCourseWorkItems = currentPageData?.items || []
 
   // Use external loading/error states if provided, otherwise use hook states
   const isLoading = externalIsLoading || courseWorkLoading
@@ -88,29 +82,22 @@ const CourseWorkWidget: React.FC<BaseWidgetProps> = ({
   // All filtering is now handled server-side
   const filteredItems = allCourseWorkItems
 
-  const handleResetPagination = useCallback(() => {
-    resetPagination()
-    refetch()
-  }, [resetPagination, refetch])
-
   const handleCourseChange = useCallback(
     (_event: React.SyntheticEvent, data: {value?: string | number; id?: string}) => {
       if (data.value && typeof data.value === 'string') {
         setSelectedCourse(data.value)
-        handleResetPagination()
       }
     },
-    [handleResetPagination],
+    [],
   )
 
   const handleDateFilterChange = useCallback(
     (_event: React.SyntheticEvent, data: {value?: string | number; id?: string}) => {
       if (data.value && typeof data.value === 'string') {
         setSelectedDateFilter(data.value as DateFilterOption)
-        handleResetPagination()
       }
     },
-    [handleResetPagination],
+    [],
   )
 
   return (
@@ -120,36 +107,47 @@ const CourseWorkWidget: React.FC<BaseWidgetProps> = ({
       error={error ? I18n.t('Failed to load course work. Please try again.') : null}
       onRetry={handleRetry}
       pagination={{
-        ...paginationProps,
+        currentPage: currentPageIndex + 1,
+        totalPages,
+        onPageChange: goToPage,
+        isLoading: courseWorkLoading,
         ariaLabel: I18n.t('Course work pagination'),
       }}
-      headerActions={
-        <CourseWorkFilters
-          selectedCourse={selectedCourse}
-          selectedDateFilter={selectedDateFilter}
-          onCourseChange={handleCourseChange}
-          onDateFilterChange={handleDateFilterChange}
-          userCourses={userCourses}
-        />
-      }
     >
-      {filteredItems.length === 0 ? (
-        <Flex justifyItems="center" padding="large">
-          <Text color="secondary">
-            {selectedCourse === 'all'
-              ? I18n.t('No upcoming course work')
-              : I18n.t('No upcoming course work for selected course')}
-          </Text>
-        </Flex>
-      ) : (
-        <View height="100%">
-          <Flex direction="column">
-            {filteredItems.map(item => (
-              <CourseWorkItemComponent key={item.id} item={item} />
-            ))}
-          </Flex>
-        </View>
-      )}
+      <Flex direction="column" gap="small" height="100%">
+        <Flex.Item>
+          <CourseWorkFilters
+            selectedCourse={selectedCourse}
+            selectedDateFilter={selectedDateFilter}
+            onCourseChange={handleCourseChange}
+            onDateFilterChange={handleDateFilterChange}
+            userCourses={userCourses}
+          />
+        </Flex.Item>
+        <Flex.Item shouldGrow>
+          {filteredItems.length === 0 ? (
+            <Flex justifyItems="center" padding="large">
+              <Text color="secondary">
+                {selectedCourse === 'all'
+                  ? I18n.t('No upcoming course work')
+                  : I18n.t('No upcoming course work for selected course')}
+              </Text>
+            </Flex>
+          ) : (
+            <View height="100%">
+              <Flex direction="column">
+                <List isUnstyled margin="0">
+                  {filteredItems.map(item => (
+                    <List.Item key={item.id} margin="0">
+                      <CourseWorkItemComponent item={item} />
+                    </List.Item>
+                  ))}
+                </List>
+              </Flex>
+            </View>
+          )}
+        </Flex.Item>
+      </Flex>
     </TemplateWidget>
   )
 }

@@ -323,10 +323,10 @@ BASE_PERMISSIONS = {
   },
   manage_lti_registrations: {
     label: -> { I18n.t("LTI Registrations - Manage") },
-    account_only: :root,
+    account_only: true,
     true_for: %w[AccountAdmin],
     available_to: %w[AccountAdmin AccountMembership],
-    account_allows: ->(a) { a.feature_enabled?(:lti_registrations_page) },
+    account_allows: ->(a) { a.root_account.feature_enabled?(:lti_registrations_page) },
     account_details: [
       { title: -> { I18n.t("LTI Registrations - Manage") },
         description: -> { I18n.t("Allows users to view, add, modify, and delete LTI 1.3 tool registrations on the new Apps page.") } }
@@ -421,6 +421,17 @@ BASE_PERMISSIONS = {
     account_only: :site_admin,
     true_for: %w[AccountAdmin],
     available_to: %w[AccountAdmin AccountMembership],
+  },
+  manage_rate_limiting: {
+    label: -> { I18n.t("Account - Rate Limiting") },
+    account_only: :site_admin,
+    available_to: %w[AccountAdmin AccountMembership],
+    true_for: [],
+    account_allows: ->(a) { a.feature_enabled?(:api_rate_limits) },
+    account_details: [
+      { title: -> { I18n.t("Rate Limiting Management") },
+        description: -> { I18n.t("Allows user to manage API rate limits for external tools and integrations.") } }
+    ],
   },
   manage_internal_settings: {
     label: -> { I18n.t("permissions.manage_internal_settings", "Manage environment-wide internal settings") },
@@ -2105,6 +2116,21 @@ BASE_PERMISSIONS = {
     true_for: %w[AccountAdmin],
     account_only: true,
     account_allows: ->(a) { a.feature_enabled?(:title_iv_financial_aid_report) }
+  },
+  access_ignite_agent: {
+    label: -> { I18n.t("Ignite Agent - access") },
+    available_to: %w[AccountAdmin AccountMembership],
+    true_for: %w[AccountAdmin],
+    account_only: true,
+    account_allows: ->(a) { a.feature_enabled?(:ignite_agent_enabled) },
+    account_details: [
+      { title: -> { I18n.t("Ignite Agent") },
+        description: -> { I18n.t("Allows user to access the Ignite Agent AI companion for Canvas LMS.") } }
+    ],
+    account_considerations: [
+      { title: -> { I18n.t("Ignite Agent") },
+        description: -> { I18n.t("The Ignite Agent feature must be enabled for the account to assign this permission.") } }
+    ]
   },
   manage_impact: {
     label: -> { I18n.t("Impact - Manage") },

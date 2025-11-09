@@ -828,6 +828,25 @@ describe Course do
         expect(new_course).to be_valid
       end
 
+      describe "default_student_gradebook_view validation" do
+        before do
+          @course = course_factory
+          @course.enable_feature!(:outcome_gradebook)
+          @course.enable_feature!(:student_outcome_gradebook)
+          @course.enable_feature!(:default_to_learning_mastery_gradebook)
+        end
+
+        it "allows setting to true when all feature flags are enabled" do
+          @course.default_student_gradebook_view = true
+          expect(@course).to be_valid
+        end
+
+        it "allows setting to false" do
+          @course.default_student_gradebook_view = false
+          expect(@course).to be_valid
+        end
+      end
+
       it "validates the license" do
         course = course_factory
         course.license = "blah"
@@ -2801,7 +2820,8 @@ describe Course do
       end
 
       it "returns Accessibility tab if feature flag is enabled for teachers" do
-        @course.root_account.settings[:enable_content_a11y_checker] = true
+        @course.root_account.enable_feature!(:a11y_checker)
+        @course.enable_feature!(:a11y_checker_eap)
         tabs = @course.tabs_available(@user)
 
         # Checks that Accessibility tab is at the end of the tabs (except for Settings tab)
@@ -2809,7 +2829,8 @@ describe Course do
         accessibility_tab_index = tabs.pluck(:id).index(Course::TAB_ACCESSIBILITY)
         expect(accessibility_tab_index).to eq(settings_tab_index - 1)
       ensure
-        @course.root_account.settings[:enable_content_a11y_checker] = false
+        @course.disable_feature!(:a11y_checker_eap)
+        @course.root_account.disable_feature!(:a11y_checker)
       end
 
       describe "TAB_YOUTUBE_MIGRATION" do
@@ -2888,6 +2909,120 @@ describe Course do
           youtube_tab = tabs.find { |t| t[:id] == Course::TAB_YOUTUBE_MIGRATION }
 
           expect(youtube_tab).to be_nil
+        end
+
+        it "includes YouTube migration tab when Studio tool is on a higher level account" do
+          sub_account = @course.root_account.sub_accounts.create!(name: "Sub Account")
+          @course.update!(account: sub_account)
+          sub_account.context_external_tools.where(domain: "arc.instructure.com").destroy_all
+
+          tabs = @course.tabs_available(@user)
+          youtube_tab = tabs.find { |t| t[:id] == Course::TAB_YOUTUBE_MIGRATION }
+
+          expect(youtube_tab).not_to be_nil
+          expect(youtube_tab[:label]).to eq("YouTube Migration")
+        end
+      end
+
+      describe "TAB_AI_EXPERIENCES" do
+        before do
+          @course.enable_feature!(:ai_experiences)
+        end
+
+        after do
+          @course.disable_feature!(:ai_experiences)
+        end
+
+        it "includes AI Experiences tab when feature flag is enabled and user has permissions" do
+          tabs = @course.tabs_available(@user)
+          ai_tab = tabs.find { |t| t[:id] == Course::TAB_AI_EXPERIENCES }
+
+          expect(ai_tab).not_to be_nil
+          expect(ai_tab[:label]).to eq("AI Experiences")
+          expect(ai_tab[:css_class]).to eq("ai_experiences")
+          expect(ai_tab[:href]).to eq(:course_ai_experiences_path)
+        end
+
+        it "positions AI Experiences tab before Settings tab" do
+          tabs = @course.tabs_available(@user)
+          settings_tab_index = tabs.pluck(:id).index(Course::TAB_SETTINGS)
+          ai_tab_index = tabs.pluck(:id).index(Course::TAB_AI_EXPERIENCES)
+
+          expect(ai_tab_index).not_to be_nil
+          expect(settings_tab_index).not_to be_nil
+          expect(ai_tab_index).to be < settings_tab_index
+        end
+
+        it "does not include AI Experiences tab when feature flag is disabled" do
+          @course.disable_feature!(:ai_experiences)
+          tabs = @course.tabs_available(@user)
+          ai_tab = tabs.find { |t| t[:id] == Course::TAB_AI_EXPERIENCES }
+
+          expect(ai_tab).to be_nil
+        end
+
+        it "does not include AI Experiences tab when user lacks permissions" do
+          student = user_factory(active_all: true)
+          @course.enroll_student(student, enrollment_state: "active")
+
+          tabs = @course.tabs_available(student)
+          ai_tab = tabs.find { |t| t[:id] == Course::TAB_AI_EXPERIENCES }
+
+          expect(ai_tab).to be_nil
+        end
+
+        it "includes AI Experiences tab for users with manage_course_content permissions" do
+          ta = user_factory(active_all: true)
+          @course.enroll_ta(ta, enrollment_state: "active")
+
+          tabs = @course.tabs_available(ta)
+          ai_tab = tabs.find { |t| t[:id] == Course::TAB_AI_EXPERIENCES }
+
+          expect(ai_tab).not_to be_nil
+        end
+
+        it "includes AI Experiences tab for users with manage_assignments permissions" do
+          # Create a custom role with only assignment permissions
+          role = @course.account.roles.create!(name: "Grader", base_role_type: "TaEnrollment")
+          @course.account.role_overrides.create!(
+            role:,
+            permission: "manage_assignments_add",
+            enabled: true
+          )
+
+          grader = user_factory(active_all: true)
+          @course.enroll_user(grader, "TaEnrollment", role:, enrollment_state: "active")
+
+          tabs = @course.tabs_available(grader)
+          ai_tab = tabs.find { |t| t[:id] == Course::TAB_AI_EXPERIENCES }
+
+          expect(ai_tab).not_to be_nil
+        end
+
+        it "can be reordered and persists the custom position" do
+          # Move AI Experiences to the second position (after home)
+          @course.tab_configuration = [
+            { id: Course::TAB_AI_EXPERIENCES },
+            { id: Course::TAB_ANNOUNCEMENTS },
+            { id: Course::TAB_ASSIGNMENTS },
+            { id: Course::TAB_DISCUSSIONS },
+            { id: Course::TAB_GRADES },
+            { id: Course::TAB_PEOPLE },
+            { id: Course::TAB_PAGES },
+            { id: Course::TAB_FILES },
+            { id: Course::TAB_SYLLABUS },
+            { id: Course::TAB_OUTCOMES },
+            { id: Course::TAB_QUIZZES },
+            { id: Course::TAB_MODULES }
+          ]
+          @course.save!
+
+          tabs = @course.tabs_available(@user)
+          tab_ids = tabs.pluck(:id)
+
+          # Home should be first, AI Experiences should be second
+          expect(tab_ids[0]).to eq(Course::TAB_HOME)
+          expect(tab_ids[1]).to eq(Course::TAB_AI_EXPERIENCES)
         end
       end
 
@@ -3054,22 +3189,56 @@ describe Course do
         expect(available_tabs.select { |t| t[:hidden] }).to be_empty
       end
 
-      it "includes item banks tab for active external tools" do
-        @course.context_external_tools.create!(
-          url: "http://example.com/ims/lti",
-          consumer_key: "asdf",
-          shared_secret: "hjkl",
-          name: "external tool 1",
-          course_navigation: {
-            text: "Item Banks",
+      context "with an active external tool" do
+        let!(:quiz_lti_tool) do
+          @course.context_external_tools.create!(
             url: "http://example.com/ims/lti",
-            default: false,
-          }
-        )
+            consumer_key: "asdf",
+            shared_secret: "hjkl",
+            name: "external tool 1",
+            course_navigation: {
+              text: "Item Banks",
+              url: "http://example.com/ims/lti",
+              default: false,
+            }
+          )
+        end
 
-        tabs = @course.tabs_available(@user, include_external: true).pluck(:label)
+        it "includes item banks tab for active external tools" do
+          tabs = @course.tabs_available(@user, include_external: true).pluck(:label)
 
-        expect(tabs).to include("Item Banks")
+          expect(tabs).to include("Item Banks")
+        end
+
+        context "and the ams_root_account_integration is enabled" do
+          before do
+            @course.root_account.enable_feature!(:ams_root_account_integration)
+          end
+
+          context "and the ams_course_integration is disabled" do
+            before do
+              @course.disable_feature!(:ams_course_integration)
+            end
+
+            it "does not replace the context external tool tab" do
+              available_tabs = @course.tabs_available(@user, include_external: true).pluck(:id)
+              expect(available_tabs).not_to include(Course::TAB_ITEM_BANKS)
+              expect(available_tabs).to include("context_external_tool_#{quiz_lti_tool.id}")
+            end
+          end
+
+          context "and the ams_course_integration is enabled" do
+            before do
+              @course.enable_feature!(:ams_course_integration)
+            end
+
+            it "replaces the content external tool tab with the ams_service Item Banks tab" do
+              available_tabs = @course.tabs_available(@user, include_external: true).pluck(:id)
+              expect(available_tabs).to include(Course::TAB_ITEM_BANKS)
+              expect(available_tabs).not_to include("context_external_tool_#{quiz_lti_tool.id}")
+            end
+          end
+        end
       end
 
       describe "with canvas_for_elementary account setting on" do
@@ -3450,18 +3619,6 @@ describe Course do
 
           available_tabs = @course.tabs_available(@user, include_external: true).pluck(:label)
           expect(available_tabs).not_to include("Item Banks")
-        end
-
-        context "and the ams_service is enabled" do
-          before do
-            @course.root_account.enable_feature!(:ams_service)
-          end
-
-          it "replaces the content external tool tab with the ams_service Item Banks tab" do
-            available_tabs = @course.tabs_available(@user, include_external: true).pluck(:id)
-            expect(available_tabs).to include(Course::TAB_ITEM_BANKS)
-            expect(available_tabs).not_to include("context_external_tool_#{quiz_lti_tool.id}")
-          end
         end
       end
 
@@ -5885,6 +6042,119 @@ describe Course do
     end
   end
 
+  describe "#sync_with_homeroom" do
+    before :once do
+      @account = Account.default
+      toggle_k5_setting(@account, true)
+
+      @homeroom_course1 = course_factory(active_course: true, account: @account)
+      @homeroom_course1.homeroom_course = true
+      @homeroom_course1.save!
+
+      @homeroom_course2 = course_factory(active_course: true, account: @account)
+      @homeroom_course2.homeroom_course = true
+      @homeroom_course2.save!
+
+      @teacher = user_factory(active_all: true)
+      @homeroom_course1.enroll_teacher(@teacher, enrollment_state: "active")
+      @homeroom_course2.enroll_teacher(@teacher, enrollment_state: "active")
+
+      @course_1 = course_factory(active_course: true, account: @account)
+      @course_1.sync_enrollments_from_homeroom = true
+      @course_1.homeroom_course_id = @homeroom_course1.id
+      @course_1.save!
+
+      @course_2 = course_factory(active_course: true, account: @account)
+      @course_2.sync_enrollments_from_homeroom = true
+      @course_2.homeroom_course_id = @homeroom_course2.id
+      @course_2.save!
+
+      @course_2.destroy
+    end
+
+    it "does not raise an error when processing courses with deleted linked courses" do
+      expect { Course.sync_with_homeroom }.not_to raise_error
+    end
+
+    it "syncs enrollments from homeroom to the active regular course" do
+      Course.sync_with_homeroom
+      @course_1.reload
+
+      homeroom_teacher_ids = @homeroom_course1.teacher_enrollments.map(&:user_id)
+      regular_teacher_ids = @course_1.teacher_enrollments.map(&:user_id)
+
+      expect(regular_teacher_ids).to match_array(homeroom_teacher_ids)
+    end
+
+    it "does not process the deleted regular course" do
+      Course.sync_with_homeroom
+      @course_2.reload
+
+      expect(@course_2.teacher_enrollments).to be_empty
+    end
+  end
+
+  describe ".syncing_subjects" do
+    before :once do
+      @account = Account.default
+      toggle_k5_setting(@account, true)
+
+      @homeroom_course1 = course_factory(active_course: true, account: @account)
+      @homeroom_course1.homeroom_course = true
+      @homeroom_course1.save!
+
+      @homeroom_course2 = course_factory(active_course: true, account: @account)
+      @homeroom_course2.homeroom_course = true
+      @homeroom_course2.save!
+
+      @course_1 = course_factory(active_course: true, account: @account)
+      @course_1.sync_enrollments_from_homeroom = true
+      @course_1.homeroom_course_id = @homeroom_course1.id
+      @course_1.save!
+
+      @course_2 = course_factory(active_course: true, account: @account)
+      @course_2.sync_enrollments_from_homeroom = true
+      @course_2.homeroom_course_id = @homeroom_course2.id
+      @course_2.save!
+
+      @course_2.destroy
+    end
+
+    it "returns only non-deleted regular courses linked to homerooms" do
+      syncing_courses = Course.syncing_subjects
+
+      expect(syncing_courses).to include(@course_1)
+      expect(syncing_courses).not_to include(@course_2)
+    end
+
+    it "excludes courses with deleted homerooms" do
+      @homeroom_course1.destroy
+
+      syncing_courses = Course.syncing_subjects
+
+      expect(syncing_courses).not_to include(@course_1)
+    end
+
+    it "excludes courses with sis_batch_id" do
+      batch = @account.sis_batches.create!
+      @course_1.sis_batch_id = batch.id
+      @course_1.save!
+
+      syncing_courses = Course.syncing_subjects
+
+      expect(syncing_courses).not_to include(@course_1)
+    end
+
+    it "excludes courses not syncing from homeroom" do
+      @course_1.sync_enrollments_from_homeroom = false
+      @course_1.save!
+
+      syncing_courses = Course.syncing_subjects
+
+      expect(syncing_courses).not_to include(@course_1)
+    end
+  end
+
   describe "#user_is_instructor?" do
     before :once do
       @course = Course.create
@@ -6639,6 +6909,19 @@ describe Course do
         expect(result_enrollment.id).to eq current_course_enrollment.id
         expect(result_enrollment.course_id).to eq @course1.id
         expect(result_enrollment.course_section_id).to eq @section.id
+      end
+
+      context "when multiple enrollments are allowed" do
+        it "reuses enrollment from original course when section is cross-listed to new course" do
+          enrollment = @course1.enroll_user(@user, "TeacherEnrollment", section: @section)
+          enrollment.destroy
+          @section.crosslist_to_course(@course2)
+          @section.reload
+
+          expect { @course2.enroll_user(@user, "TeacherEnrollment", section: @section, allow_multiple_enrollments: true) }
+            .not_to raise_error
+          expect(@user.enrollments.find_by(course: @course2).id).to eq enrollment.id
+        end
       end
     end
 
@@ -8745,6 +9028,154 @@ describe Course do
     end
   end
 
+  describe "horizon content ingestion" do
+    let(:horizon_account) do
+      account = Account.create!
+      account.enable_feature!(:horizon_course_setting)
+      account.enable_feature!(:horizon_auto_content_ingestion)
+      account.horizon_account = true
+      account.save!
+      account
+    end
+
+    let(:regular_account) { Account.create! }
+    let(:pine_client_mock) { double("PineClient") }
+
+    before do
+      allow(pine_client_mock).to receive_messages(enabled?: true, ingest_url: true, ingest_html: true)
+      stub_const("PineClient", pine_client_mock)
+    end
+
+    describe "#handle_horizon_activation" do
+      it "enqueues content discovery job when course becomes a horizon course" do
+        course = regular_account.courses.create!
+
+        # Allow other delay calls but expect our specific one
+        allow(course).to receive(:delay).and_call_original
+        expect(course).to receive(:delay).with(
+          n_strand: ["horizon_content_discovery", horizon_account.global_id],
+          singleton: "horizon_content_discovery:#{course.global_id}"
+        ).and_return(course)
+        expect(course).to receive(:ingest_horizon_content)
+
+        course.account = horizon_account
+        course.save!
+      end
+
+      it "does not enqueue job when feature flag is disabled" do
+        horizon_account.disable_feature!(:horizon_auto_content_ingestion)
+        course = regular_account.courses.create!
+
+        expect(course).not_to receive(:ingest_horizon_content)
+
+        course.account = horizon_account
+        course.save!
+      end
+
+      it "does not enqueue job when course is already a horizon course" do
+        course = horizon_account.courses.create!
+        course.save!
+
+        expect(course).not_to receive(:ingest_horizon_content)
+
+        course.name = "Updated Name"
+        course.save!
+      end
+
+      it "does not enqueue job when course stops being a horizon course" do
+        course = horizon_account.courses.create!
+        course.save!
+
+        expect(course).not_to receive(:ingest_horizon_content)
+
+        course.account = regular_account
+        course.save!
+      end
+    end
+
+    describe "#ingest_horizon_content" do
+      let(:course) { horizon_account.courses.create! }
+      let(:pdf_file) { attachment_model(context: course, content_type: "application/pdf") }
+      let(:txt_file) { attachment_model(context: course, content_type: "text/plain") }
+      let(:image_file) { attachment_model(context: course, content_type: "image/png") }
+      let(:wiki_page) { course.wiki_pages.create!(title: "Test Page", body: "<p>Content</p>") }
+
+      before do
+        allow(PineClient).to receive(:allowed_attachment_content_types).and_return([
+                                                                                     "application/pdf",
+                                                                                     "text/plain",
+                                                                                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                                                   ])
+      end
+
+      it "enqueues jobs for allowed file types" do
+        pdf_file
+        txt_file
+        image_file
+
+        delayed_files = []
+        allow_any_instance_of(Attachment).to receive(:delay) do |attachment, **args|
+          expect(args[:n_strand]).to eq(["horizon_file_ingestion", horizon_account.global_id])
+          expect(args[:singleton]).to match(/^horizon_file_ingestion:#{course.global_id}:\d+$/)
+          expect(args[:max_attempts]).to eq(3)
+          delayed_files << attachment
+          attachment
+        end
+
+        allow_any_instance_of(Attachment).to receive(:ingest_to_pine)
+
+        course.ingest_horizon_content
+
+        expect(delayed_files.map(&:id)).to match_array([pdf_file.id, txt_file.id])
+      end
+
+      it "enqueues jobs for wiki pages" do
+        wiki_page
+
+        delayed_pages = []
+        allow_any_instance_of(WikiPage).to receive(:delay) do |page, **args|
+          expect(args[:n_strand]).to eq(["horizon_wiki_ingestion", horizon_account.global_id])
+          expect(args[:singleton]).to match(/^horizon_wiki_ingestion:#{course.global_id}:\d+$/)
+          expect(args[:max_attempts]).to eq(3)
+          delayed_pages << page
+          page
+        end
+
+        allow_any_instance_of(WikiPage).to receive(:ingest_to_pine)
+
+        course.ingest_horizon_content
+
+        expect(delayed_pages.map(&:id)).to eq([wiki_page.id])
+      end
+
+      it "does not enqueue jobs for non-horizon courses" do
+        regular_course = regular_account.courses.create!
+
+        expect(regular_course).not_to receive(:delay)
+
+        regular_course.ingest_horizon_content
+      end
+
+      it "only processes active attachments" do
+        deleted_file = attachment_model(context: course, content_type: "application/pdf")
+        deleted_file.destroy
+
+        expect(course).not_to receive(:delay)
+
+        course.ingest_horizon_content
+      end
+
+      it "only processes active wiki pages" do
+        deleted_page = course.wiki_pages.create!(title: "Deleted", body: "Content")
+        deleted_page.destroy
+
+        expect(course).not_to receive(:delay)
+
+        course.ingest_horizon_content
+      end
+    end
+  end
+
   describe "copied assets" do
     it "returns courses that copied a page" do
       source_course = Course.create!
@@ -8941,6 +9372,87 @@ describe Course do
       it { expect_active_now(false, start_at: nil, end_at: now - 1.day, restrict: false) }
       it { expect_active_now(false, start_at: now + 1.day, end_at: now + 2.days, restrict: false) }
       it { expect_active_now(false, start_at: now - 2.days, end_at: now - 1.day, restrict: false) }
+    end
+  end
+
+  describe "#block_content_editor_enabled?" do
+    let(:course) { Course.new(account: Account.default) }
+
+    context "when both features are enabled" do
+      before do
+        allow(course.account).to receive(:feature_enabled?).with(:block_content_editor).and_return(true)
+        allow(course).to receive(:feature_enabled?).with(:block_content_editor_eap).and_return(true)
+      end
+
+      it "returns true" do
+        expect(course.block_content_editor_enabled?).to be true
+      end
+    end
+
+    context "when account feature is enabled but course feature is disabled" do
+      before do
+        allow(course.account).to receive(:feature_enabled?).with(:block_content_editor).and_return(true)
+        allow(course).to receive(:feature_enabled?).with(:block_content_editor_eap).and_return(false)
+      end
+
+      it "returns false" do
+        expect(course.block_content_editor_enabled?).to be false
+      end
+    end
+
+    context "when account feature is disabled" do
+      before do
+        allow(course.account).to receive(:feature_enabled?).with(:block_content_editor).and_return(false)
+        allow(course).to receive(:feature_enabled?).with(:block_content_editor_eap).and_return(true)
+      end
+
+      it "returns false" do
+        expect(course.block_content_editor_enabled?).to be false
+      end
+    end
+
+    context "when both features are disabled" do
+      before do
+        allow(course.account).to receive(:feature_enabled?).with(:block_content_editor).and_return(false)
+        allow(course).to receive(:feature_enabled?).with(:block_content_editor_eap).and_return(false)
+      end
+
+      it "returns false" do
+        expect(course.block_content_editor_enabled?).to be false
+      end
+    end
+  end
+
+  describe "syllabus versioning" do
+    let(:course) { Course.create!(name: "Test Course") }
+
+    context "when syllabus_versioning feature flag is enabled" do
+      before { Account.site_admin.enable_feature!(:syllabus_versioning) }
+
+      it "creates version when syllabus_body changes and excludes specified fields" do
+        expect do
+          course.update!(syllabus_body: "Initial syllabus content", name: "Updated Course Name")
+        end.to change { course.versions.count }.by(1)
+
+        version = course.versions.last
+        versioned_data = YAML.safe_load(version.yaml, permitted_classes: [Time, Date, Symbol, ActiveSupport::TimeWithZone, ActiveSupport::TimeZone])
+        expect(versioned_data["syllabus_body"]).to eq("Initial syllabus content")
+        expect(versioned_data).to have_key("syllabus_body")
+        expect(versioned_data).to have_key("name")
+        Course::SIMPLY_VERSIONED_EXCLUDE_FIELDS.each do |excluded_field|
+          expect(versioned_data).not_to have_key(excluded_field)
+        end
+      end
+    end
+
+    context "when syllabus_versioning feature flag is disabled" do
+      before { Account.site_admin.disable_feature!(:syllabus_versioning) }
+
+      it "does not create versions when syllabus_body changes" do
+        expect do
+          course.update!(syllabus_body: "Initial syllabus content", name: "Updated Course Name")
+        end.not_to change { course.versions.count }
+      end
     end
   end
 end

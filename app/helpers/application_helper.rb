@@ -1276,8 +1276,10 @@ module ApplicationHelper
       needed_tag_ids << tag_ids[ix - 1] if ix > 0
       needed_tag_ids << tag_ids[ix + 1] if ix < tag_ids.size - 1
     end
-
-    needed_tags = ContentTag.where(id: needed_tag_ids.uniq).preload(:context_module).index_by(&:id)
+    needed_tags = ContentTag
+                  .where(id: needed_tag_ids.uniq)
+                  .preload(:context_module, content: [:current_lookup, :wiki])
+                  .index_by(&:id)
     opts = { can_view_published: @context.grants_right?(@current_user, session, :read_as_admin) }
 
     tag_indices.each do |ix|
@@ -1445,5 +1447,12 @@ module ApplicationHelper
     formatted_number ||= number.truncate(options[:precision] || 2)
 
     "#{formatted_number} #{BYTE_UNITS[exponent]}"
+  end
+
+  def microfrontend_overrides
+    return nil unless Setting.get("allow_microfrontend_release_tag_override", "false") == "true"
+
+    service = MicrofrontendsReleaseTagOverrideService.new(session)
+    service.overrides_summary if service.overrides_active?
   end
 end

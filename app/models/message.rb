@@ -752,7 +752,7 @@ self.user,
     global_account_id = Shard.global_id_for(root_account_id, shard)
     InstStatsd::Statsd.increment("message.deliver.#{path_type}.#{global_account_id}",
                                  short_stat: "message.deliver_per_account",
-                                 tags: { path_type:, root_account_id: global_account_id })
+                                 tags: { path_type: }.merge(Utils::InstStatsdUtils::Tags.tags_for(shard)))
 
     if check_acct.feature_enabled?(:notification_service)
       enqueue_to_sqs
@@ -835,7 +835,12 @@ self.user,
   def notification_targets
     case path_type
     when "push"
-      user.notification_endpoints.select("DISTINCT ON (token, arn) *").map(&:arn)
+      # get all unique tokens/arns for the user, preferring the most recently updated ones
+      # without the order_by, DISTINCT ON would be non-deterministic
+      user.notification_endpoints
+          .select("DISTINCT ON (token, arn) *")
+          .order(:token, :arn, updated_at: :desc)
+          .map(&:arn)
     when "slack"
       [
         "recipient" => to,

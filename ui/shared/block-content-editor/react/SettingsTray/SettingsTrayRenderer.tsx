@@ -16,55 +16,50 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useEditor} from '@craftjs/core'
-import {useScope as createI18nScope} from '@canvas/i18n'
-import {SettingsTray} from './SettingsTray'
-import {useBlockContentEditorContext} from '../BlockContentEditorContext'
 import React, {ReactElement, useEffect, useState} from 'react'
-
-const I18n = createI18nScope('block_content_editor')
+import {useEditor} from '@craftjs/core'
+import {SettingsTray} from './SettingsTray'
+import {useSettingsTray} from '../hooks/useSettingsTray'
+import {useAppSelector} from '../store'
 
 export const SettingsTrayRenderer = () => {
   const {query} = useEditor()
-  const {settingsTray} = useBlockContentEditorContext()
+  const {isOpen, blockId} = useAppSelector(state => ({...state.settingsTray}))
+  const {close} = useSettingsTray()
 
   const [currentSettings, setCurrentSettings] = useState<{
-    title: string
+    blockDisplayName: string
     settings: ReactElement | null
   }>({
-    title: '',
+    blockDisplayName: '',
     settings: null,
   })
 
   useEffect(() => {
-    if (settingsTray.isOpen && settingsTray.blockId) {
-      const node = query.node(settingsTray.blockId).get()
-      const title = I18n.t('%{blockDisplayName} block settings', {
-        blockDisplayName: node.data.displayName,
-      })
+    if (isOpen && blockId) {
+      const node = query.node(blockId).get()
+      const blockDisplayName = node.data.displayName
 
       setCurrentSettings({
-        title,
+        blockDisplayName,
         settings: React.createElement(node.related.settings),
       })
     }
-  }, [settingsTray.isOpen, settingsTray.isOpen && settingsTray.blockId, query])
+  }, [isOpen, blockId, query])
 
-  const onDismiss = () => {
-    settingsTray.close()
-  }
+  const onDismiss = () => close()
 
   const onClose = () => {
     setCurrentSettings({
-      title: '',
+      blockDisplayName: '',
       settings: null,
     })
   }
 
   return (
     <SettingsTray
-      title={currentSettings.title}
-      open={settingsTray.isOpen}
+      blockDisplayName={currentSettings.blockDisplayName}
+      open={isOpen}
       onDismiss={onDismiss}
       onClose={onClose}
     >

@@ -51,6 +51,7 @@ module GraphQLNodeLoader
         return nil unless user && ctx[:current_user]
 
         return user if user.grants_right?(ctx[:current_user], :read_full_profile)
+        return user if user.grants_right?(ctx[:current_user], :read)
         return user if user == ctx[:current_user]
 
         has_permission = Rails.cache.fetch(["node_user_perm", ctx[:current_user], user].cache_key) do
@@ -149,6 +150,14 @@ module GraphQLNodeLoader
           next nil unless policy.course.grants_right?(ctx[:current_user], :manage_grades)
 
           policy
+        end
+      end
+    when "ScheduledPost"
+      Loaders::IDLoader.for(ScheduledPost).load(id).then do |scheduled_post|
+        Loaders::AssociationLoader.for(ScheduledPost, :assignment).load(scheduled_post).then do |assignment|
+          next nil unless assignment.course.grants_right?(ctx[:current_user], :manage_grades)
+
+          scheduled_post
         end
       end
     when "File"

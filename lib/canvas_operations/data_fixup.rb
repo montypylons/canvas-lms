@@ -18,6 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative "base_operation"
+require_relative "data_fixup_concerns/auditing"
 require_relative "errors"
 
 module CanvasOperations
@@ -46,6 +47,8 @@ module CanvasOperations
   # The operation will iterate over the defined scope in ID ranges, scheduling
   # background jobs to process each range according to the specified mode.
   class DataFixup < BaseOperation
+    extend DataFixupConcerns::Auditing
+
     VALID_MODES = [:individual_record, :batch].freeze
 
     setting :range_batch_size, default: 5_000, type_cast: :to_i
@@ -101,6 +104,34 @@ module CanvasOperations
       #
       # @param strategy [Symbol] the batch strategy to use
       attr_writer :batch_strategy
+
+      # Default to sending messages to both the log _and_ stdout if we're in a migration
+      # So that a developer running the migration can actually see if it fails.
+      def log_message(message, level: :info)
+        if ActiveRecord::Base.in_migration
+          if level == :debug
+            # Don't send to stdout
+          elsif [:warn, :error].include?(level)
+            warn message
+          else
+            puts message # rubocop:disable Rails/Output
+          end
+        end
+
+        super
+      end
+
+      # Should the data fixup run on the default shard?
+      #
+      # The deafult shard contains shadow copies of all other root accounts in production,
+      # which may result in unexpected behavior if a data fixup is run there.
+      #
+      # Defaults to `true`, which means the data fixup will run on the default shard.
+      attr_writer :run_on_default_shard
+
+      def run_on_default_shard?
+        @run_on_default_shard.nil? || @run_on_default_shard
+      end
     end
 
     protected
@@ -123,14 +154,16 @@ module CanvasOperations
 
     # Determines if the current shard is a valid target for the DataFixup operation.
     #
-    # By default this method halts the operation on the default shard. Subclasses can
-    # override this method to implement custom shard validation logic.
+    # In its base form this check returns true unless run_on_default_shard is false,
+    # in which case it returns true only if the current shard is not the default shard.
     #
     # Be wary if overriding this method. The default shard contains shadow copies of all
     # root accounts, which may lead to unexpected fixup behavior.
     #
     # @return [Boolean] true if the current shard is not the default, false otherwise.
     def valid_shard?
+      return true if self.class.run_on_default_shard?
+
       !switchman_shard.default?
     end
 
@@ -196,7 +229,7 @@ module CanvasOperations
           # Don't enqueue a bunch of no-op jobs (at the cost of an extra EXISTS query per batch)
           next unless scope.where(id: min_id..max_id).exists?
 
-          GuardRail.activate(:primary) { delay(n_strand:).process_range(min_id, max_id) }
+          GuardRail.activate(:primary) { delay_if_production(n_strand:).process_range(min_id, max_id) }
 
           wait_between_jobs
         end
@@ -213,18 +246,30 @@ module CanvasOperations
     def process_range(min_id, max_id)
       log_message("Processing records with IDs between #{min_id} and #{max_id}")
 
-      GuardRail.activate(:report) do
-        scope.where(id: min_id..max_id).in_batches(strategy: batch_strategy) do |batch|
-          case mode
-          when :individual_record
-            batch.each do |record|
-              GuardRail.activate(:primary) { process_record(record) }
+      attachment_audits = with_attachment_audits do |record_changes|
+        GuardRail.activate(:report) do
+          scope.where(id: min_id..max_id).in_batches(strategy: batch_strategy) do |batch|
+            case mode
+            when :individual_record
+              batch.each do |record|
+                change = GuardRail.activate(:primary) { process_record(record) }
+                record_changes.call(change) if record_changes? && change.present?
+                wait_between_processing
+              end
+            when :batch
+              change = GuardRail.activate(:primary) { process_batch(batch) }
+              record_changes.call(change) if record_changes? && change.present?
               wait_between_processing
             end
-          when :batch
-            GuardRail.activate(:primary) { process_batch(batch) }
-            wait_between_processing
           end
+        end
+      end
+
+      if record_changes?
+        if attachment_audits.blank?
+          log_message("No audit attachments were written")
+        else
+          log_message("Wrote audit attachments: #{attachment_audits.join(", ")}")
         end
       end
     end
@@ -247,7 +292,7 @@ module CanvasOperations
     end
 
     def ensure_valid_shard
-      raise Errors::InvalidOperationTarget, "DataFixup is being run on an invalid target: #{Shard.current.id}" unless valid_shard?
+      raise Errors::InvalidOperationTarget, "DataFixup is being run on a shard that has been excluded: #{Shard.current.id}" unless valid_shard?
     end
 
     def mode
@@ -263,12 +308,12 @@ module CanvasOperations
     end
 
     def wait_between_jobs
-      log_message("Sleeping between job scheduling for #{job_scheduled_sleep_time} seconds")
+      log_message("Sleeping between job scheduling for #{job_scheduled_sleep_time} seconds", level: :debug)
       sleep(job_scheduled_sleep_time) # rubocop:disable Lint/NoSleep
     end
 
     def wait_between_processing
-      log_message("Sleeping between processing for #{processing_sleep_time} seconds")
+      log_message("Sleeping between processing for #{processing_sleep_time} seconds", level: :debug)
       sleep(processing_sleep_time) # rubocop:disable Lint/NoSleep
     end
   end

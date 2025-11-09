@@ -19,6 +19,7 @@
 import {useMutation, useQueryClient} from '@tanstack/react-query'
 import {executeQuery} from '@canvas/graphql'
 import {gql} from 'graphql-tag'
+import {ANNOUNCEMENTS_PAGINATED_KEY} from '../constants'
 
 interface UpdateDiscussionReadStateVariables {
   discussionTopicId: string
@@ -66,44 +67,12 @@ export function useToggleAnnouncementReadState() {
 
       return result
     },
-    onMutate: async (variables: UpdateDiscussionReadStateVariables) => {
-      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
-      await queryClient.cancelQueries({
-        queryKey: ['announcements', currentUserId],
-      })
-
-      // Snapshot the previous value
-      const previousData = queryClient.getQueryData(['announcements', currentUserId])
-
-      // Optimistically update the cache
-      queryClient.setQueryData(['announcements', currentUserId], (old: any) => {
-        if (!old) return old
-
-        return old.map((announcement: any) => {
-          if (announcement.id === variables.discussionTopicId) {
-            return {
-              ...announcement,
-              isRead: variables.read,
-              participant: variables.read ? {...announcement.participant, read: true} : null,
-            }
-          }
-          return announcement
-        })
-      })
-
-      // Return a context object with the snapshotted value
-      return {previousData}
-    },
-    onError: (_err, _variables, context) => {
-      // If the mutation fails, use the context returned from onMutate to roll back
-      if (context?.previousData) {
-        queryClient.setQueryData(['announcements', currentUserId], context.previousData)
-      }
-    },
-    onSettled: () => {
-      // Always refetch after error or success to ensure consistency
+    onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ['announcements', currentUserId],
+        predicate: query => {
+          const queryKey = query.queryKey as unknown[]
+          return queryKey[0] === ANNOUNCEMENTS_PAGINATED_KEY && queryKey[1] === currentUserId
+        },
       })
     },
   })

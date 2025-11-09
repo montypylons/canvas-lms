@@ -38,6 +38,12 @@ import {waitFor} from '@testing-library/react'
 import {createRoot} from 'react-dom/client'
 import {setupServer} from 'msw/node'
 import {http, HttpResponse} from 'msw'
+import {getUrlWithHorizonParams} from '@canvas/horizon/utils'
+
+// Mock the horizon utils module
+jest.mock('@canvas/horizon/utils', () => ({
+  getUrlWithHorizonParams: jest.fn(),
+}))
 
 jest.mock('jquery-ui', () => {
   const $ = require('jquery')
@@ -204,7 +210,18 @@ describe('EditView', () => {
       },
       context_asset_string: 'course_1',
       SETTINGS: {},
+      FEATURES: {},
     }
+
+    // Setup default mock for getUrlWithHorizonParams
+    getUrlWithHorizonParams.mockImplementation((url, additionalParams) => {
+      if (additionalParams && Object.keys(additionalParams).length > 0) {
+        const separator = url.includes('?') ? '&' : '?'
+        const params = new URLSearchParams(additionalParams).toString()
+        return `${url}${separator}${params}`
+      }
+      return url
+    })
 
     fetchMock.get('/api/v1/courses/1/settings', {})
     fetchMock.get('/api/v1/courses/1/sections?per_page=100', [])
@@ -227,6 +244,7 @@ describe('EditView', () => {
     fetchMock.reset()
     server.resetHandlers()
     jest.resetModules()
+    jest.clearAllMocks()
     window.ENV = null
   })
 
@@ -390,7 +408,7 @@ describe('EditView', () => {
     }
 
     it('attaches AssetProcessors component when FF is on', async () => {
-      window.ENV.FEATURES = {lti_asset_processor: true}
+      window.ENV.FEATURES = {lti_asset_processor: true, lti_asset_processor_course: true}
       const view = createEditViewOnlineSubmission({onlineUpload: true})
       view.afterRender()
       await waitFor(() => {
@@ -404,7 +422,7 @@ describe('EditView', () => {
     })
 
     it('contains the correct initialAttachedProcessors', async () => {
-      window.ENV.FEATURES = {lti_asset_processor: true}
+      window.ENV.FEATURES = {lti_asset_processor: true, lti_asset_processor_course: true}
       window.ENV.ASSET_PROCESSORS = [{id: 1}] // rest of the fields omitted here for brevity
       const view = createEditViewOnlineSubmission({onlineUpload: true})
       view.afterRender()
@@ -419,16 +437,18 @@ describe('EditView', () => {
       window.ENV.FEATURES = {lti_asset_processor: false}
       const view = createEditViewOnlineSubmission({onlineUpload: true})
       view.afterRender()
-      await waitFor(() => {
-        expect(view.$assetProcessorsContainer.children()).toHaveLength(0)
-      })
-      // Ensure no children are added after the initial render
-      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(view.$assetProcessorsContainer.children()).toHaveLength(0)
+    })
+
+    it('does not attach AssetProcessors component when lti_asset_processor is on but lti_asset_processor_course is off', async () => {
+      window.ENV.FEATURES = {lti_asset_processor: true, lti_asset_processor_course: false}
+      const view = createEditViewOnlineSubmission({onlineUpload: true})
+      view.afterRender()
       expect(view.$assetProcessorsContainer.children()).toHaveLength(0)
     })
 
     it('is hidden if submission type does not include online with a file upload', () => {
-      window.ENV.FEATURES = {lti_asset_processor: true}
+      window.ENV.FEATURES = {lti_asset_processor: true, lti_asset_processor_course: true}
       let view = createEditViewOnlineSubmission({onlineUpload: true})
       view.afterRender()
       expect(view.$assetProcessorsContainer.css('display')).toBe('block')

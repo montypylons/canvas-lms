@@ -38,6 +38,35 @@ class Course < ActiveRecord::Base
 
   alias_attribute :short_name, :course_code
 
+  SIMPLY_VERSIONED_EXCLUDE_FIELDS = %w[
+    id
+    account_id
+    root_account_id
+    wiki_id
+    enrollment_term_id
+    abstract_course_id
+    grading_standard_id
+    template_course_id
+    replacement_course_id
+    latest_outcome_import_id
+    homeroom_course_id
+    sis_source_id
+    sis_batch_id
+    stuck_sis_fields
+    integration_id
+    lti_context_id
+    turnitin_id
+    workflow_state
+    uuid
+    indexed
+    delete_me_frd
+    deleted_at
+    archived_at
+    storage_quota
+    created_at
+    updated_at
+  ].freeze
+
   time_zone_attribute :time_zone
   def time_zone
     super || RequestCache.cache("account_time_zone", root_account_id) do
@@ -181,6 +210,7 @@ class Course < ActiveRecord::Base
   has_many :combined_groups_and_differentiation_tags, class_name: "Group", as: :context, inverse_of: :context
   has_many :assignment_groups, -> { order("assignment_groups.position", AssignmentGroup.best_unicode_collation_key("assignment_groups.name")) }, as: :context, inverse_of: :context, dependent: :destroy
   has_many :assignments, -> { order("assignments.created_at") }, as: :context, inverse_of: :context, dependent: :destroy
+  has_many :ai_experiences, dependent: :destroy
   has_many :calendar_events, -> { where("calendar_events.workflow_state<>'cancelled'") }, as: :context, inverse_of: :context, dependent: :destroy
   has_many :submissions, -> { active.order("submissions.updated_at DESC") }, inverse_of: :course, dependent: :destroy
   has_many :submission_comments, -> { published }, as: :context, inverse_of: :context
@@ -308,6 +338,7 @@ class Course < ActiveRecord::Base
   before_save :set_self_enrollment_code
   before_save :validate_license
   before_save :set_horizon_course, if: -> { account_id_changed? || new_record? }
+  after_save :handle_horizon_activation, if: :just_became_horizon_course?
   after_save :update_final_scores_on_weighting_scheme_change
   after_save :update_account_associations_if_changed
   after_save :update_lti_context_controls_if_necessary
@@ -346,6 +377,19 @@ class Course < ActiveRecord::Base
   validates_locale allow_nil: true
 
   sanitize_field :syllabus_body, CanvasSanitize::SANITIZE
+
+  simply_versioned exclude: SIMPLY_VERSIONED_EXCLUDE_FIELDS,
+                   keep: 5,
+                   when: lambda { |course|
+                     return false unless course.syllabus_body_changed?
+
+                     begin
+                       !!Account.site_admin&.feature_enabled?(:syllabus_versioning)
+                     rescue => e
+                       Rails.logger.warn("Error checking syllabus_versioning flag: #{e.message}")
+                       false
+                     end
+                   }
 
   include StickySisFields
 
@@ -720,7 +764,7 @@ class Course < ActiveRecord::Base
   def image
     @image ||= if image_id.present?
                  shard.activate do
-                   attachments.active.find_by(id: image_id)&.public_download_url(1.week)
+                   attachments.active.find_by(id: image_id)&.public_download_url(expires_in: 1.week, no_jti: true)
                  end
                elsif image_url
                  image_url
@@ -730,7 +774,7 @@ class Course < ActiveRecord::Base
   def banner_image
     @banner_image ||= if banner_image_id.present?
                         shard.activate do
-                          attachments.active.find_by(id: banner_image_id)&.public_download_url(1.week)
+                          attachments.active.find_by(id: banner_image_id)&.public_download_url(expires_in: 1.week, no_jti: true)
                         end
                       elsif banner_image_url
                         banner_image_url
@@ -1089,7 +1133,7 @@ class Course < ActiveRecord::Base
   scope :templates, -> { where(template: true) }
 
   scope :homeroom, -> { where(homeroom_course: true) }
-  scope :syncing_subjects, -> { joins("INNER JOIN #{Course.quoted_table_name} AS homeroom ON homeroom.id = courses.homeroom_course_id").where("homeroom.homeroom_course = true AND homeroom.workflow_state <> 'deleted'").where(sis_batch_id: nil).where(sync_enrollments_from_homeroom: true) }
+  scope :syncing_subjects, -> { joins("INNER JOIN #{Course.quoted_table_name} AS homeroom ON homeroom.id = courses.homeroom_course_id").where("homeroom.homeroom_course = true AND homeroom.workflow_state <> 'deleted'").where(sis_batch_id: nil).where(sync_enrollments_from_homeroom: true).where.not(workflow_state: "deleted") }
 
   scope :horizon, -> { where(horizon_course: true) }
   scope :not_horizon, -> { where(horizon_course: false) }
@@ -1520,6 +1564,16 @@ class Course < ActiveRecord::Base
     true
   end
 
+  def just_became_horizon_course?
+    saved_change_to_horizon_course? && horizon_course?
+  end
+
+  def handle_horizon_activation
+    return unless root_account.feature_enabled?(:horizon_auto_content_ingestion)
+
+    delay(n_strand: ["horizon_content_discovery", global_root_account_id], singleton: "horizon_content_discovery:#{global_id}").ingest_horizon_content
+  end
+
   def update_cached_due_dates
     if saved_change_to_enrollment_term_id?
       recompute_student_scores
@@ -1582,6 +1636,32 @@ class Course < ActiveRecord::Base
     )
   end
 
+  def ingest_horizon_content
+    return unless horizon_course?
+
+    files = attachments
+            .active
+            .by_content_types(PineClient.allowed_attachment_content_types)
+
+    pages = wiki_pages.active
+
+    files.find_each do |file|
+      file.delay(
+        n_strand: ["horizon_file_ingestion", global_root_account_id],
+        singleton: "horizon_file_ingestion:#{global_id}:#{file.id}",
+        max_attempts: 3
+      ).ingest_to_pine
+    end
+
+    pages.find_each do |page|
+      page.delay(
+        n_strand: ["horizon_wiki_ingestion", global_root_account_id],
+        singleton: "horizon_wiki_ingestion:#{global_id}:#{page.id}",
+        max_attempts: 3
+      ).ingest_to_pine
+    end
+  end
+
   def handle_syllabus_changes_for_master_migration
     if syllabus_body_changed?
       self.syllabus_updated_at = Time.now.utc
@@ -1608,8 +1688,8 @@ class Course < ActiveRecord::Base
     root_account.feature_enabled?(:disable_file_verifiers_in_public_syllabus)
   end
 
-  def access_for_attachment_association?(user, session, _association, location_param)
-    location_param.start_with?("course_syllabus_") && grants_right?(user, session, :read_syllabus)
+  def access_for_attachment_association?(user, session, _association)
+    grants_right?(user, session, :read_syllabus)
   end
 
   def home_page
@@ -2105,6 +2185,15 @@ class Course < ActiveRecord::Base
       end_at = override.end_at if override
     end
     end_at ||= enrollment_term.end_at
+    end_at ? end_at < now : false
+  end
+
+  def soft_concluded_for_all?(enrollment_types)
+    now = Time.zone.now
+    return end_at < now if end_at && restrict_enrollments_to_course_dates
+
+    override = enrollment_term.enrollment_dates_overrides.where(enrollment_type: enrollment_types).pluck(:end_at).compact.max
+    end_at = [enrollment_term.end_at, override].compact.max
     end_at ? end_at < now : false
   end
 
@@ -2626,32 +2715,28 @@ class Course < ActiveRecord::Base
         pairing_id = opts[:temporary_enrollment_pairing_id]
       end
 
-      e = if opts[:allow_multiple_enrollments]
-            # For multiple enrollments, only look within current course
-            course_scope.where(course_section_id: section.id).first
-          else
-            # Try to find the enrollment in the current course, preferring the target section
-            course_scope.order(Arel.sql("course_section_id<>#{section.id}")).first ||
-              # Expand scope if needed to ALL courses for this section (handles cross-course constraint)
-              section_scope.where.not(course_id: id).first
-          end
+      # Try to find an existing enrollment for this user/role in the target section.
+      # If not found AND allow_multiple_enrollments is NOT set, fall back to any enrollment in this course.
+      # If still not found, check for an enrollment in the same physical section, but tied
+      # to another course via cross‑listing
+      e = course_scope.find_by(course_section_id: section.id)
+      e ||= course_scope.first unless opts[:allow_multiple_enrollments]
+      e ||= section_scope.where.not(course_id: id).first
 
       if e && (!e.active? || opts[:force_update])
         e.already_enrolled = true
-        # If the enrollment is in a different course due to crosslisting,
-        # we need to transfer it to this course.
-        if e.course_id != id
-          e.course_id = id
+        e.course_id = id if e.course_id != id # in case we found it via section_scope
+        e.sis_batch_id = nil if e.workflow_state == "deleted" # clear sis_batch_id so it can be reimported
+
+        desired_workflow_state = e.is_a?(StudentViewEnrollment) ? "active" : enrollment_state
+        needs_state_change = e.completed? || e.rejected? || e.deleted? || e.workflow_state != desired_workflow_state
+
+        if e.course_section_id != section.id && (needs_state_change || e.saved_change_to_course_id?)
           e.course_section = section
         end
-        if e.workflow_state == "deleted"
-          e.sis_batch_id = nil
-        end
-        if e.completed? || e.rejected? || e.deleted? || e.workflow_state != enrollment_state
-          e.attributes = {
-            course_section: section,
-            workflow_state: e.is_a?(StudentViewEnrollment) ? "active" : enrollment_state
-          }
+
+        if needs_state_change && e.workflow_state != desired_workflow_state
+          e.workflow_state = desired_workflow_state
         end
       end
       # if we're reusing an enrollment and +limit_privileges_to_course_section+ was supplied, apply it
@@ -2854,19 +2939,6 @@ class Course < ActiveRecord::Base
                 :assignment_group_no_drop_assignments,
                 :migration_results
 
-  def map_merge(old_item, new_item)
-    @merge_mappings ||= {}
-    @merge_mappings[old_item.asset_string] = new_item && new_item.id
-  end
-
-  def merge_mapped_id(old_item)
-    @merge_mappings ||= {}
-    return nil unless old_item
-    return @merge_mappings[old_item] if old_item.is_a?(String)
-
-    @merge_mappings[old_item.asset_string]
-  end
-
   def same_dates?(old, new, columns)
     old && new && columns.all? do |column|
       old.respond_to?(column) && new.respond_to?(column) && old.send(column) == new.send(column)
@@ -2879,81 +2951,6 @@ class Course < ActiveRecord::Base
       Folder::STUDENT_ANNOTATION_DOCUMENTS_UNIQUE_TYPE,
       -> { t "Student Annotation Documents" }
     )
-  end
-
-  def copy_attachments_from_course(course, options = {})
-    root_folder = Folder.root_folders(self).first
-    root_folder_name = root_folder.name + "/"
-    ce = options[:content_export]
-    cm = options[:content_migration]
-
-    attachments = course.attachments.not_deleted.to_a
-    total = attachments.count + 1
-
-    Attachment.skip_media_object_creation do
-      attachments.each_with_index do |file, i|
-        cm.update_import_progress((i.to_f / total) * 18.0) if cm && (i % 10 == 0)
-
-        next unless !ce || ce.export_object?(file)
-
-        begin
-          migration_id = ce&.create_key(file)
-          new_file = file.clone_for(self, nil, overwrite: true, migration_id:, migration: cm, match_on_migration_id: cm.for_master_course_import?)
-          cm.add_attachment_path(file.full_display_path.gsub(/\A#{root_folder_name}/, ""), new_file.migration_id)
-          new_folder_id = merge_mapped_id(file.folder)
-
-          if file.folder && file.folder.parent_folder_id.nil?
-            new_folder_id = root_folder.id
-          end
-          # make sure the file has somewhere to go
-          unless new_folder_id
-            # gather mapping of needed folders from old course to new course
-            old_folders = []
-            old_folders << file.folder
-            new_folders = []
-            new_folders << old_folders.last.clone_for(self, nil, options.merge({ include_subcontent: false }))
-            while old_folders.last.parent_folder&.parent_folder_id
-              old_folders << old_folders.last.parent_folder
-              new_folders << old_folders.last.clone_for(self, nil, options.merge({ include_subcontent: false }))
-            end
-            old_folders.reverse!
-            new_folders.reverse!
-            # try to use folders that already match if possible
-            final_new_folders = []
-            parent_folder = Folder.root_folders(self).first
-            old_folders.each_with_index do |folder, idx|
-              final_new_folders << if (f = parent_folder.active_sub_folders.where(name: folder.name).first)
-                                     f
-                                   else
-                                     new_folders[idx]
-                                   end
-              parent_folder = final_new_folders.last
-            end
-            # add or update the folder structure needed for the file
-            final_new_folders.first.parent_folder_id ||=
-              merge_mapped_id(old_folders.first.parent_folder) ||
-              Folder.root_folders(self).first.id
-            old_folders.each_with_index do |folder, idx|
-              final_new_folders[idx].save!
-              map_merge(folder, final_new_folders[idx])
-              final_new_folders[idx + 1].parent_folder_id ||= final_new_folders[idx].id if final_new_folders[idx + 1]
-            end
-            new_folder_id = merge_mapped_id(file.folder)
-          end
-          new_file.folder_id = new_folder_id
-          new_file.need_notify = false
-          new_file.save_without_broadcasting!
-          new_file.handle_duplicates(:rename)
-          cm.add_imported_item(new_file)
-          cm.add_imported_item(new_file.folder, key: new_file.folder.id)
-          map_merge(file, new_file)
-        rescue => e
-          Canvas::Errors.capture(e) unless e.message.include?("Cannot create attachments in deleted folders")
-          Rails.logger.error "Couldn't copy file: #{e}"
-          cm.add_warning(t(:file_copy_error, "Couldn't copy file \"%{name}\"", name: file.display_name || file.path_name), $!)
-        end
-      end
-    end
   end
 
   def self.clonable_attributes
@@ -3320,6 +3317,7 @@ class Course < ActiveRecord::Base
   TAB_ACCESSIBILITY = 22
   TAB_ITEM_BANKS = 23
   TAB_YOUTUBE_MIGRATION = 24
+  TAB_AI_EXPERIENCES = 25
 
   CANVAS_K6_TAB_IDS = [TAB_HOME, TAB_ANNOUNCEMENTS, TAB_GRADES, TAB_MODULES].freeze
   COURSE_SUBJECT_TAB_IDS = [TAB_HOME, TAB_SCHEDULE, TAB_MODULES, TAB_GRADES, TAB_GROUPS].freeze
@@ -3522,7 +3520,7 @@ class Course < ActiveRecord::Base
       default_tabs.insert(1,
                           {
                             id: TAB_SEARCH,
-                            label: t("#tabs.search", "Smart Search"),
+                            label: t("IgniteAI Search"),
                             css_class: "search",
                             href: :course_search_path
                           })
@@ -3537,15 +3535,26 @@ class Course < ActiveRecord::Base
                           })
     end
 
-    if root_account.enable_content_a11y_checker?
-      # Add Accessibility tab at the end of the tabs (except for Settings tab)
+    if a11y_checker_enabled? && grants_any_right?(user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
       default_tabs.push({
                           id: TAB_ACCESSIBILITY,
                           label: t("#tabs.accessibility", "Accessibility"),
                           css_class: "accessibility",
-                          href: :course_accessibility_index_path,
-                          visibility: "admins"
+                          href: :course_accessibility_index_path
                         })
+    end
+
+    # Add AI Experiences tab before Settings if feature flag is enabled
+    # AI Experiences is currently using assignment permissions until granular ai experiences permissions are created
+    if feature_enabled?(:ai_experiences) && grants_any_right?(user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS, *RoleOverride::GRANULAR_MANAGE_ASSIGNMENT_PERMISSIONS)
+      settings_index = default_tabs.index { |t| t[:id] == TAB_SETTINGS }
+      settings_index ||= default_tabs.length
+      default_tabs.insert(settings_index, {
+                            id: TAB_AI_EXPERIENCES,
+                            label: t("#tabs.ai_experiences", "AI Experiences"),
+                            css_class: "ai_experiences",
+                            href: :course_ai_experiences_path
+                          })
     end
 
     # Remove already cached tabs for Horizon courses
@@ -3600,7 +3609,9 @@ class Course < ActiveRecord::Base
       tabs += default_tabs
       tabs += external_tabs
 
-      if root_account.feature_enabled?(:ams_service) && tabs.any? { |t| t[:label] == "Item Banks" }
+      if root_account.feature_enabled?(:ams_root_account_integration) &&
+         feature_enabled?(:ams_course_integration) &&
+         tabs.any? { |t| t[:label] == "Item Banks" }
         ams_item_banks_tab = {
           id: TAB_ITEM_BANKS,
           label: t("#tabs.item_banks", "Item Banks"),
@@ -3853,6 +3864,7 @@ class Course < ActiveRecord::Base
   add_setting :allow_student_anonymous_discussion_topics, boolean: true, default: false
   add_setting :show_total_grade_as_points, boolean: true, default: false
   add_setting :filter_speed_grader_by_student_group, boolean: true, default: false
+  add_setting :default_student_gradebook_view, boolean: true, default: false
   add_setting :lock_all_announcements, boolean: true, default: false, inherited: true
   add_setting :large_roster, boolean: true, default: ->(c) { c.root_account.large_course_rosters? }
   add_setting :course_format
@@ -3888,6 +3900,14 @@ class Course < ActiveRecord::Base
 
   add_setting :show_student_only_module_id
   add_setting :show_teacher_only_module_id
+
+  def block_content_editor_enabled?
+    account.feature_enabled?(:block_content_editor) && feature_enabled?(:block_content_editor_eap)
+  end
+
+  def a11y_checker_enabled?
+    account.feature_enabled?(:a11y_checker) && feature_enabled?(:a11y_checker_eap)
+  end
 
   def elementary_enabled?
     account.enable_as_k5_account?
@@ -4654,10 +4674,12 @@ class Course < ActiveRecord::Base
     total > MAX_ACCESSIBILITY_SCAN_RESOURCES
   end
 
+  def self.find_studio_tool(course)
+    Lti::ContextToolFinder.all_tools_for(course).find_by(domain: "arc.instructure.com")
+  end
+
   def has_studio_integration?
-    domain = "arc.instructure.com"
-    root_account.context_external_tools.active.where(domain:).exists? ||
-      account.context_external_tools.active.where(domain:).exists?
+    !!Course.find_studio_tool(self)
   end
 
   private

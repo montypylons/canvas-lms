@@ -35,6 +35,7 @@ import {
 import {PeerReviews} from '../../../../graphql/PeerReviews'
 import {getSpeedGraderUrl, responsiveQuerySizes} from '../../../utils'
 import {DiscussionTopicContainer} from '../DiscussionTopicContainer'
+import {ObserverContext} from '../../../utils/ObserverContext'
 
 // mock assignLocation
 jest.mock('@canvas/util/globalUtils', () => ({
@@ -117,7 +118,11 @@ describe('DiscussionTopicContainer', () => {
     return render(
       <MockedProvider mocks={mocks}>
         <AlertManagerContext.Provider value={{setOnFailure, setOnSuccess}}>
-          <DiscussionTopicContainer {...props} />
+          <ObserverContext.Provider
+            value={{observerRef: {current: undefined}, nodesRef: {current: new Map()}}}
+          >
+            <DiscussionTopicContainer {...props} />
+          </ObserverContext.Provider>
         </AlertManagerContext.Provider>
       </MockedProvider>,
     )
@@ -629,6 +634,62 @@ describe('DiscussionTopicContainer', () => {
       const {queryByText} = setup(props)
 
       expect(queryByText('eer review for Morty Smith Due: Mar 31, 2021 5:59am')).toBeNull()
+    })
+
+    it('passes disabled=true to PeerReview when user has not posted', () => {
+      const {container} = setup({
+        discussionTopic: Discussion.mock({
+          participant: {posted: false},
+          assignment: {
+            assessmentRequestsForCurrentUser: [
+              {
+                _id: 'assessment1',
+                user: {
+                  _id: 'user1',
+                  displayName: 'Test User',
+                },
+                workflowState: 'assigned',
+              },
+            ],
+          },
+        }),
+      })
+
+      const peerReviewElements = container.querySelectorAll('.discussions-peer-review')
+      expect(peerReviewElements.length).toBeGreaterThan(0)
+
+      const links = container.querySelectorAll(
+        'a[aria-disabled="true"], button[disabled], [data-interaction="disabled"]',
+      )
+      expect(links.length).toBeGreaterThan(0)
+    })
+
+    it('passes disabled=false to PeerReview when user has posted', () => {
+      const {container} = setup({
+        discussionTopic: Discussion.mock({
+          participant: {posted: true},
+          assignment: {
+            assessmentRequestsForCurrentUser: [
+              {
+                _id: 'assessment1',
+                user: {
+                  _id: 'user1',
+                  displayName: 'Test User',
+                },
+                workflowState: 'assigned',
+              },
+            ],
+          },
+        }),
+      })
+
+      const peerReviewElements = container.querySelectorAll('.discussions-peer-review')
+      expect(peerReviewElements.length).toBeGreaterThan(0)
+
+      const enabledLinks = container.querySelectorAll(
+        '.discussions-peer-review a:not([aria-disabled="true"]):not([disabled])',
+      )
+      expect(enabledLinks.length).toBeGreaterThan(0)
     })
 
     describe('PodcastFeed Button', () => {

@@ -17,7 +17,7 @@
  */
 
 import React, {useCallback} from 'react'
-import {useMutation} from '@tanstack/react-query'
+import {useMutation, useQueryClient} from '@tanstack/react-query'
 import {View} from '@instructure/ui-view'
 import {Alert} from '@instructure/ui-alerts'
 import {Button} from '@instructure/ui-buttons'
@@ -26,7 +26,11 @@ import {Link} from '@instructure/ui-link'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import {executeQuery} from '@canvas/graphql'
-import {ACCEPT_ENROLLMENT_INVITATION, REJECT_ENROLLMENT_INVITATION} from '../constants'
+import {
+  ACCEPT_ENROLLMENT_INVITATION,
+  REJECT_ENROLLMENT_INVITATION,
+  DASHBOARD_NOTIFICATIONS_KEY,
+} from '../constants'
 
 interface AcceptEnrollmentInvitationResponse {
   acceptEnrollmentInvitation?: {
@@ -78,10 +82,18 @@ const EnrollmentInvitation: React.FC<EnrollmentInvitationProps> = ({
   onAccept,
   onReject,
 }) => {
+  const queryClient = useQueryClient()
+
   const acceptMutation = useMutation<AcceptEnrollmentInvitationResponse, Error, string>({
     mutationFn: async (enrollmentUuid: string) => {
       return executeQuery<AcceptEnrollmentInvitationResponse>(ACCEPT_ENROLLMENT_INVITATION, {
         enrollmentUuid,
+      })
+    },
+    onSuccess: () => {
+      // Invalidate dashboard notifications to remove accepted invitation from cache
+      queryClient.invalidateQueries({
+        queryKey: [DASHBOARD_NOTIFICATIONS_KEY],
       })
     },
   })
@@ -90,6 +102,12 @@ const EnrollmentInvitation: React.FC<EnrollmentInvitationProps> = ({
     mutationFn: async (enrollmentUuid: string) => {
       return executeQuery<RejectEnrollmentInvitationResponse>(REJECT_ENROLLMENT_INVITATION, {
         enrollmentUuid,
+      })
+    },
+    onSuccess: () => {
+      // Invalidate dashboard notifications to remove rejected invitation from cache
+      queryClient.invalidateQueries({
+        queryKey: [DASHBOARD_NOTIFICATIONS_KEY],
       })
     },
   })
@@ -104,6 +122,10 @@ const EnrollmentInvitation: React.FC<EnrollmentInvitationProps> = ({
           type: 'success',
         })
         onAccept?.(invitation.id)
+
+        // Small delay to allow backend after_transaction_commit to clear cache
+        await new Promise(resolve => setTimeout(resolve, 500))
+        window.location.reload()
       } else {
         const errors = result?.acceptEnrollmentInvitation?.errors || []
         const errorMessage =
@@ -153,7 +175,7 @@ const EnrollmentInvitation: React.FC<EnrollmentInvitationProps> = ({
   const courseUrl = `/courses/${invitation.course.id}?invitation=${invitation.uuid}`
 
   return (
-    <View as="div" margin="0 0 small 0">
+    <View as="div" margin="0 0 small 0" data-testid="enrollment-invitation">
       <Alert variant="success" renderCloseButtonLabel="">
         <Flex>
           <Flex.Item shouldGrow shouldShrink>

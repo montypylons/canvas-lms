@@ -31,6 +31,11 @@ describe('LtiAssetReports types', () => {
       expect(result).toBe('online_upload')
     })
 
+    it("should return 'discussion_topic' for valid discussion_topic submission type", () => {
+      const result = ensureCompatibleSubmissionType('discussion_topic')
+      expect(result).toBe('discussion_topic')
+    })
+
     it("should return undefined for incompatible submission type 'online_url'", () => {
       const result = ensureCompatibleSubmissionType('online_url')
       expect(result).toBeUndefined()
@@ -44,6 +49,14 @@ describe('LtiAssetReports types', () => {
     it('should return undefined for arbitrary invalid string', () => {
       const result = ensureCompatibleSubmissionType('invalid_submission_type')
       expect(result).toBeUndefined()
+    })
+
+    it('should return undefined for null input', () => {
+      expect(ensureCompatibleSubmissionType(null)).toBeUndefined()
+    })
+
+    it('should return undefined for undefined input', () => {
+      expect(ensureCompatibleSubmissionType(undefined)).toBeUndefined()
     })
   })
 })

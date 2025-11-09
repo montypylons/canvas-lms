@@ -58,6 +58,18 @@ module Modules2IndexPage
     "[data-testid='edit-item-modal']"
   end
 
+  def edit_item_submit_button_selector
+    "form[data-testid='edit-item-modal'] button[type='submit']"
+  end
+
+  def edit_item_modal_title_selector
+    "form[data-testid='edit-item-modal'] input[data-testid='edit-modal-title']"
+  end
+
+  def edit_item_modal_new_tab_checkbox_selector
+    "form[data-testid='edit-item-modal'] input[data-testid='edit-modal-new-tab']"
+  end
+
   def expand_all_modules_button_selector
     "button[aria-label='Expand All Modules']"
   end
@@ -515,6 +527,18 @@ module Modules2IndexPage
     edit_item_modal.find_element(:css, "input[data-testid='edit-modal-url']").attribute("value")
   end
 
+  def edit_item_modal_submit_button
+    f(edit_item_submit_button_selector)
+  end
+
+  def edit_item_modal_title_input
+    f(edit_item_modal_title_selector)
+  end
+
+  def edit_item_modal_new_tab_checkbox
+    f(edit_item_modal_new_tab_checkbox_selector)
+  end
+
   def expand_all_modules_button
     f(expand_all_modules_button_selector)
   end
@@ -839,20 +863,20 @@ module Modules2IndexPage
     f("[data-testid='select_position_listbox']")
   end
 
-  def place_item_at_bottom_option
-    fj("[role='option']:contains('At the bottom')")
+  def move_item_tray_select_page_listbox
+    f("[id^='Select_'][data-testid='select_module_listbox'][title*='Page']")
   end
 
-  def cancel_tray_button
-    fxpath("//button[.//span[text()='Cancel']]")
+  def page_option(page_number)
+    fj("[role='option']:contains('Page #{page_number}')")
   end
 
-  def submit_move_to_button
-    fxpath("//button[.//span[text()='Move']]")
+  def reference_item_option(title)
+    fj("[role='option']:contains('#{title}')")
   end
 
-  def close_tray_button
-    fxpath("//button[.//span[text()='Close']]")
+  def move_item_tray_reference_listbox
+    fxpath("//label[span[text()='Select Reference Item']]//input[@role='combobox']")
   end
 
   def tab_create_item
@@ -887,7 +911,15 @@ module Modules2IndexPage
     element_exists?(quiz_engine_option_selector)
   end
 
+  def all_modules
+    ff('[data-rbd-droppable-id="modules-list"] [data-module-id]')
+  end
+
   #------------------------------ Actions -------------------------------
+
+  def list_all_module_ids
+    @module_ids = all_modules.map { |module_element| module_element.attribute("data-module-id") }
+  end
 
   def assignments_due_button_exists?
     element_exists?(assignments_due_button_selector)
@@ -986,6 +1018,18 @@ module Modules2IndexPage
     "[data-testid='add-item-content-select']"
   end
 
+  def search_and_select_existing_item(item_name)
+    search_chars = (item_name.length > 10) ? item_name[0..3] : item_name[0..1]
+    wait_for_ajaximations
+    wait_for(method: nil, timeout: 10) { f(add_existing_item_select_selector) }
+    input_element = f(add_existing_item_select_selector)
+    input_element.click
+    input_element.send_keys(search_chars)
+    wait_for_ajaximations
+    wait_for(method: nil, timeout: 5) { fj("[role='option']:contains('#{item_name}')") }
+    fj("[role='option']:contains('#{item_name}')").click
+  end
+
   def add_item_modal_add_item_button
     fj("button:contains('Add Item')", f("[data-testid='add-item-modal']"))
   end
@@ -1023,10 +1067,7 @@ module Modules2IndexPage
     click_INSTUI_Select_option(new_item_type_select_selector, item_type)
     wait_for_ajaximations
 
-    # Select the item from the list
-    click_INSTUI_Select_option(add_existing_item_select_selector, item_title_text)
-
-    # Click Add Item
+    search_and_select_existing_item(item_title_text)
     add_item_modal_add_item_button.click
     wait_for_ajaximations
   end
@@ -1094,5 +1135,18 @@ module Modules2IndexPage
 
   def scroll_to_module(module_id)
     scroll_to(f("[data-testid='module-action-menu_#{module_id}']"))
+  end
+
+  def open_move_item_tray(moved_item_id, target_module_name)
+    manage_module_item_button(moved_item_id).click
+    module_item_action_menu_link("Move to...").click
+
+    # select destination module
+    move_item_tray_select_modules_listbox.click
+    option_list_id = move_item_tray_select_modules_listbox.attribute("aria-controls")
+    option_list_course_option(option_list_id, target_module_name).click
+
+    # open the "Place ..." dropdown
+    move_item_tray_place_contents_listbox.click
   end
 end

@@ -179,12 +179,6 @@ describe Attachment do
     end
   end
 
-  def configure_crocodoc
-    PluginSetting.create! name: "crocodoc",
-                          settings: { api_key: "blahblahblahblahblah" }
-    allow_any_instance_of(Crocodoc::API).to receive(:upload).and_return "uuid" => "1234567890"
-  end
-
   def configure_canvadocs(opts = {})
     ps = PluginSetting.where(name: "canvadocs").first_or_create
     ps.update_attribute :settings, {
@@ -192,110 +186,6 @@ describe Attachment do
       "base_url" => "http://example.com",
       "annotations_supported" => true
     }.merge(opts)
-  end
-
-  context "crocodoc" do
-    include HmacHelper
-
-    let_once(:user) { user_model }
-    let_once(:course) { course_model }
-    let_once(:student) do
-      course.enroll_student(user_model).accept
-      @user
-    end
-    before { configure_crocodoc }
-
-    it "crocodocable?" do
-      crocodocable_attachment_model
-      expect(@attachment).to be_crocodocable
-    end
-
-    it "includes an allow list of moderated_grading_allow_list in the url blob" do
-      crocodocable_attachment_model
-      moderated_grading_allow_list = [user, student].map { |u| u.moderated_grading_ids(true) }
-
-      @attachment.submit_to_crocodoc
-      url_opts = {
-        moderated_grading_allow_list:
-      }
-      url = Rack::Utils.parse_nested_query(@attachment.crocodoc_url(user, url_opts).sub(/^.*\?{1}/, ""))
-      blob = extract_blob(url["hmac"],
-                          url["blob"],
-                          "user_id" => user.id,
-                          "type" => "crocodoc")
-
-      expect(blob["moderated_grading_allow_list"]).to include(user.moderated_grading_ids.as_json)
-      expect(blob["moderated_grading_allow_list"]).to include(student.moderated_grading_ids.as_json)
-    end
-
-    it "always enables annotations when creating a crocodoc url" do
-      crocodocable_attachment_model
-      @attachment.submit_to_crocodoc
-
-      url = Rack::Utils.parse_nested_query(@attachment.crocodoc_url(user, {}).sub(/^.*\?{1}/, ""))
-      blob = extract_blob(url["hmac"],
-                          url["blob"],
-                          "user_id" => user.id,
-                          "type" => "crocodoc")
-
-      expect(blob["enable_annotations"]).to be(true)
-    end
-
-    it "does not modify the options reference given to create a crocodoc url" do
-      crocodocable_attachment_model
-      @attachment.submit_to_crocodoc
-
-      url_opts = {}
-      @attachment.crocodoc_url(user, url_opts)
-      expect(url_opts).to eql({})
-    end
-
-    it "submits to crocodoc" do
-      crocodocable_attachment_model
-      expect(@attachment.crocodoc_available?).to be_falsey
-      @attachment.submit_to_crocodoc
-
-      expect(@attachment.crocodoc_available?).to be_truthy
-      expect(@attachment.crocodoc_document.uuid).to eq "1234567890"
-    end
-
-    it "spawns delayed jobs to retry failed uploads" do
-      allow_any_instance_of(Crocodoc::API).to receive(:upload).and_return "error" => "blah"
-      crocodocable_attachment_model
-
-      attempts = 3
-      stub_const("Attachment::MAX_CROCODOC_ATTEMPTS", attempts)
-
-      track_jobs do
-        # first attempt
-        @attachment.submit_to_crocodoc
-
-        time = Time.zone.now
-        # nth attempt won't create more jobs
-        attempts.times do
-          time += 1.hour
-          Timecop.freeze(time) do
-            run_jobs
-          end
-        end
-      end
-
-      expect(created_jobs.count { |job| job.tag == "Attachment#submit_to_crocodoc" }).to eq attempts
-    end
-
-    it "submits to canvadocs if crocodoc fails to convert" do
-      crocodocable_attachment_model
-      @attachment.submit_to_crocodoc
-
-      allow_any_instance_of(Crocodoc::API).to receive(:status).and_return [
-        { "uuid" => "1234567890", "status" => "ERROR" }
-      ]
-      allow(Canvadocs).to receive(:enabled?).and_return true
-
-      expects_job_with_tag("Attachment.submit_to_canvadocs") do
-        CrocodocDocument.update_process_states
-      end
-    end
   end
 
   context "canvadocs" do
@@ -357,28 +247,9 @@ describe Attachment do
       end
 
       it "sends annotatable documents to canvadocs if supported" do
-        configure_crocodoc
-        a = crocodocable_attachment_model
+        a = canvadocable_attachment_model
         a.submit_to_canvadocs 1, wants_annotation: true
         expect(a.canvadoc).not_to be_nil
-      end
-
-      it "prefers crocodoc when annotation is requested and canvadocs can't annotate" do
-        configure_crocodoc
-        configure_canvadocs "annotations_supported" => false
-        stub_const("Canvadoc::DEFAULT_MIME_TYPES", Canvadoc::DEFAULT_MIME_TYPES + ["application/blah"])
-
-        crocodocable = crocodocable_attachment_model
-        canvadocable = canvadocable_attachment_model content_type: "application/blah"
-
-        crocodocable.submit_to_canvadocs 1, wants_annotation: true
-        run_jobs
-        expect(crocodocable.canvadoc).to be_nil
-        expect(crocodocable.crocodoc_document).not_to be_nil
-
-        canvadocable.submit_to_canvadocs 1, wants_annotation: true
-        expect(canvadocable.canvadoc).not_to be_nil
-        expect(canvadocable.crocodoc_document).to be_nil
       end
 
       it "downgrades Canvadoc upload timeouts to WARN" do
@@ -756,23 +627,6 @@ describe Attachment do
       a.destroy_content_and_replace # works
       expect(a).not_to receive(:send_to_purgatory)
       a.destroy_content_and_replace # returns because it already happened
-    end
-
-    it "destroys all crocodocs even from children attachments" do
-      local_storage!
-      configure_crocodoc
-
-      a = crocodocable_attachment_model(uploaded_data: default_uploaded_data)
-      a2 = attachment_model(root_attachment: a)
-      a2.submit_to_canvadocs 1, wants_annotation: true
-      a.submit_to_canvadocs 1, wants_annotation: true
-      run_jobs
-
-      expect(a.crocodoc_document).not_to be_nil
-      expect(a2.crocodoc_document).not_to be_nil
-      a.destroy_content_and_replace
-      expect(a.reload.crocodoc_document).to be_nil
-      expect(a2.reload.crocodoc_document).to be_nil
     end
 
     it "allows destroy_content_and_replace on children attachments" do
@@ -1403,10 +1257,10 @@ describe Attachment do
       @a2 = attachment_with_context(@course, display_name: "a2")
 
       data1 = { "name" => "Hi", "question_text" => "hey look <img src='/courses/#{@course.id}/files/#{@a1.id}/download'>", "answers" => [{ "id" => 1 }, { "id" => 2 }] }
-      @aquestion1 = @bank.assessment_questions.create!(question_data: data1)
+      @aquestion1 = @bank.assessment_questions.create!(question_data: data1, current_user: @teacher)
       aq_att1 = @aquestion1.attachments.first
       data2 = { "name" => "Hi", "question_text" => "hey look <img src='/courses/#{@course.id}/files/#{@a2.id}/download'>", "answers" => [{ "id" => 1 }, { "id" => 2 }] }
-      @aquestion2 = @bank.assessment_questions.create!(question_data: data2)
+      @aquestion2 = @bank.assessment_questions.create!(question_data: data2, current_user: @teacher)
       aq_att2 = @aquestion2.attachments.first
 
       quiz = @course.quizzes.create!
@@ -1927,7 +1781,7 @@ describe Attachment do
       expect(attachment).to receive(:public_url).with(include(expires_in: 1.day))
       attachment.public_download_url
       expect(attachment).to receive(:public_url).with(include(expires_in: 2.days))
-      attachment.public_download_url(2.days)
+      attachment.public_download_url(expires_in: 2.days)
     end
 
     it "allows custom ttl for root_account" do
@@ -2153,6 +2007,44 @@ describe Attachment do
       end
 
       expect(user.attachments.build.grants_right?(user, :read)).to be_truthy
+    end
+  end
+
+  describe "copy_attachment_content" do
+    let_once(:course) { course_model }
+
+    def fresh_attachment(**opts)
+      attachment_model({ context: course }.merge(opts))
+      @attachment
+    end
+
+    it "copy_attachment_content stores file when open returns IO" do
+      source = fresh_attachment(filename: "src.txt", content_type: "text/plain")
+      dest = fresh_attachment(filename: "dest.txt", content_type: "text/plain")
+      io = StringIO.new("content2")
+      allow(source).to receive(:open).and_return(io)
+      expect(Attachments::Storage).to receive(:store_for_attachment).with(dest, io)
+      source.copy_attachment_content(dest)
+      expect(dest.workflow_state).to eq("pending_upload")
+      expect(dest.filename).to eq(source.filename)
+    end
+
+    it "copy_attachment_content marks destination broken when open returns nil and md5 nil" do
+      source = fresh_attachment(filename: "src.txt", content_type: "text/plain")
+      dest = fresh_attachment(filename: "dest.txt", content_type: "text/plain")
+      allow(source).to receive(:open).and_return(nil)
+      expect(Attachments::Storage).not_to receive(:store_for_attachment)
+      expect { source.copy_attachment_content(dest) }.to change { dest.reload.file_state }.to("broken")
+    end
+
+    it "copy_attachment_content leaves file_state unchanged when open returns nil and md5 present" do
+      source = fresh_attachment(filename: "src.txt", content_type: "text/plain")
+      dest = fresh_attachment(filename: "dest.txt", content_type: "text/plain", md5: "already")
+      original_state = dest.file_state
+      allow(source).to receive(:open).and_return(nil)
+      expect(Attachments::Storage).not_to receive(:store_for_attachment)
+      source.copy_attachment_content(dest)
+      expect(dest.reload.file_state).to eq(original_state)
     end
   end
 
@@ -2583,13 +2475,6 @@ describe Attachment do
       @course.save!
       Timecop.freeze(10.minutes.from_now) { Attachment.do_notifications }
       expect(Message.where(user_id: @student, notification_name: "New File Added").first).to be_nil
-    end
-
-    it "doesn't send notifications for a concluded section in an active course" do
-      skip("This test was not accurate, should be fixed in VICE-4138")
-      attachment_model(uploaded_data: stub_file_data("file.txt", nil, "text/html"), content_type: "text/html")
-      Timecop.freeze(10.minutes.from_now) { Attachment.do_notifications }
-      expect(Message.where(user_id: @student_ended, notification_name: "New File Added").first).to be_nil
     end
   end
 
@@ -3596,6 +3481,191 @@ describe Attachment do
       )
 
       expect(@att.used_in_submission_history?(@course)).to be true
+    end
+  end
+
+  describe "#ingest_to_pine" do
+    let(:course) { Course.create! }
+    let(:public_download_url) { "https://s3.amazonaws.com/bucket/file.pdf" }
+    let(:attachment) { attachment_model(context: course, content_type: "application/pdf", filename: "test.pdf") }
+    let(:pine_client_mock) { double("PineClient") }
+
+    before do
+      allow(pine_client_mock).to receive_messages(enabled?: true, ingest_url: true)
+      stub_const("PineClient", pine_client_mock)
+      allow_any_instance_of(Attachment).to receive(:public_download_url).and_return(public_download_url)
+    end
+
+    it "calls PineClient.ingest_url with correct parameters" do
+      expect(pine_client_mock).to receive(:ingest_url) do |**args|
+        expect(args[:url]).to eq(public_download_url)
+        expect(args[:metadata]).to eq({
+                                        course_id: course.id.to_s,
+                                        filename: "test.pdf",
+                                        content_type: "application/pdf"
+                                      })
+        expect(args[:source]).to eq("canvas")
+        expect(args[:source_id]).to eq(attachment.id.to_s)
+        expect(args[:source_type]).to eq("attachment")
+        expect(args[:feature_slug]).to eq("horizon-content-ingestion")
+        expect(args[:root_account_uuid]).to eq(course.root_account.uuid)
+        expect(args[:current_user].uuid).to be_nil
+        expect(args[:current_user].global_id).to be_nil
+        true
+      end
+
+      attachment.ingest_to_pine
+    end
+
+    it "uses system ingestion user with nil uuid and global_id" do
+      expect(pine_client_mock).to receive(:ingest_url) do |**args|
+        user = args[:current_user]
+        expect(user.uuid).to be_nil
+        expect(user.global_id).to be_nil
+        true
+      end
+
+      attachment.ingest_to_pine
+    end
+
+    it "logs error and re-raises on failure" do
+      expect(pine_client_mock).to receive(:ingest_url).and_raise(StandardError.new("API Error"))
+
+      expect(Rails.logger).to receive(:error).with(/Failed to ingest attachment/)
+      expect { attachment.ingest_to_pine }.to raise_error(StandardError, "API Error")
+    end
+
+    it "does not ingest if context is not a Course" do
+      user = User.create!
+      user_attachment = attachment_model(context: user)
+
+      expect(pine_client_mock).not_to receive(:ingest_url)
+
+      user_attachment.ingest_to_pine
+    end
+  end
+
+  describe "#can_unpublish?" do
+    context "published file" do
+      it "returns true for basic published file" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available"
+        )
+        expect(attachment.can_unpublish?).to be true
+      end
+
+      it "returns true for file with inherit visibility" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          visibility_level: "inherit"
+        )
+        expect(attachment.can_unpublish?).to be true
+      end
+    end
+
+    context "file with complex permissions" do
+      it "returns false for hidden file" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "hidden"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for public file" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "public"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for file with lock_at date" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          lock_at: 1.day.from_now
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for file with unlock_at date" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          unlock_at: 1.day.ago
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for file with context visibility" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          visibility_level: "context"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for file with institution visibility" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          visibility_level: "institution"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+
+      it "returns false for file with public visibility" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: false,
+          file_state: "available",
+          visibility_level: "public"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
+    end
+
+    context "already unpublished file" do
+      it "returns false for locked file" do
+        course_factory
+        attachment = @course.attachments.create!(
+          filename: "test.txt",
+          uploaded_data: stub_file_data("test.txt", "test data", "text/plain"),
+          locked: true,
+          file_state: "available"
+        )
+        expect(attachment.can_unpublish?).to be false
+      end
     end
   end
 end

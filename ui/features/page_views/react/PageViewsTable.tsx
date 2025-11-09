@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
+import React, {useState, useEffect} from 'react'
 import {useScope as i18nScope} from '@canvas/i18n'
 import useDateTimeFormat from '@canvas/use-date-time-format-hook'
 import {Text} from '@instructure/ui-text'
@@ -43,6 +43,7 @@ export interface PageViewsTableProps {
   startDate?: Date
   endDate?: Date
   onEmpty?: () => void
+  pageSize?: number
 }
 
 type APIQueryParams = {
@@ -92,12 +93,11 @@ export function PageViewsTable(props: PageViewsTableProps): React.JSX.Element {
   const formatDate = useDateTimeFormat('time.formats.short')
 
   const [visiblePage, setVisiblePage] = useState(0)
-  // This may be promoted to a component prop
-  const visiblePageSize = 10
+  const visiblePageSize = props.pageSize ?? 10
 
   async function fetchPageViews({
     pageParam = '1',
-  }: QueryFunctionContext<[string, string, Date?], string>): Promise<{
+  }: QueryFunctionContext<[string, string, Date?, Date?], string>): Promise<{
     views: Array<PageView>
     nextPage: string | null
   }> {
@@ -132,15 +132,44 @@ export function PageViewsTable(props: PageViewsTableProps): React.JSX.Element {
       {views: Array<PageView>; nextPage: string | null},
       Error,
       InfiniteData<{views: Array<PageView>; nextPage: string | null}>,
-      [string, string, Date?],
+      [string, string, Date?, Date?],
       string
     >({
-      queryKey: ['page_views', props.userId, props.startDate],
+      queryKey: ['page_views', props.userId, props.startDate, props.endDate],
       queryFn: fetchPageViews,
       staleTime: 10 * 60 * 1000, // 10 minutes
       getNextPageParam: lastPage => lastPage.nextPage,
       initialPageParam: '1',
     })
+
+  // Automatically fetch next page when user has viewed all available data
+  useEffect(() => {
+    if (data && isSuccess && hasNextPage && !isFetchingNextPage) {
+      // Calculate total unique views across all pages
+      const uniqueViews: Record<string, PageView> = {}
+      data.pages.forEach(page => {
+        page.views.forEach(view => {
+          uniqueViews[view.id] = view
+        })
+      })
+      const totalViews = Object.keys(uniqueViews).length
+
+      // Check if we need more data to fill the current visible page
+      const hasNextVisiblePage = (visiblePage + 1) * visiblePageSize < totalViews
+
+      if (!hasNextVisiblePage) {
+        void fetchNextPage()
+      }
+    }
+  }, [
+    data,
+    isSuccess,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    visiblePage,
+    visiblePageSize,
+  ])
 
   if (isFetching && !isFetchingNextPage) return <Spinner renderTitle={I18n.t('Loading')} />
 
@@ -170,11 +199,6 @@ export function PageViewsTable(props: PageViewsTableProps): React.JSX.Element {
     else return <Spinner renderTitle={I18n.t('Loading')} />
   }
 
-  // Indicate if there is another page of data in the cache we can go to
-  function hasNextVisiblePage() {
-    return (visiblePage + 1) * visiblePageSize < viewKeys.length
-  }
-
   function pageNumberRenderer(page: number) {
     if (page < totalVisiblePages) return page
     if (hasNextPage) return page + '+'
@@ -195,13 +219,9 @@ export function PageViewsTable(props: PageViewsTableProps): React.JSX.Element {
   )
   const totalVisiblePages = Math.ceil(viewKeys.length / visiblePageSize)
 
-  if (!hasNextVisiblePage() && hasNextPage) {
-    void fetchNextPage()
-  }
-
-  if (viewKeys.length === 0 && !props.startDate) {
+  if (viewKeys.length === 0 && props.onEmpty) {
     // We bubble this up so the parent can hide any sub filtering controls, which would again return nothing
-    if (props.onEmpty) props.onEmpty()
+    props.onEmpty()
     return <EmptyState />
   }
 

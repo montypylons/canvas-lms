@@ -17,7 +17,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class TranslationController < ApplicationController
-  require "pragmatic_segmenter"
   require "aws-sdk-translate"
 
   before_action :require_context, only: :translate
@@ -84,6 +83,13 @@ class TranslationController < ApplicationController
       tags = ["error:text_size_limit"]
       message = I18n.t("Couldn’t translate because the text is too long.")
       status = :unprocessable_entity
+    when Translation::UnsupportedLanguageError
+      message = I18n.t("The source or target language is not supported by the translation service.")
+      status = :unprocessable_entity
+    when Translation::CedarLimitReachedError
+      tags = ["error:rate_limit"]
+      message = I18n.t("The translation service is currently at capacity, please try again.")
+      status = :too_many_requests
     else
       # Generic response for all other ServiceErrors
       tags = ["error:generic"]
@@ -95,7 +101,8 @@ class TranslationController < ApplicationController
 
     render(json: { translationErrorTextTooLong: { type: "error", message: } }, status:) and return if action_name == "translate_paragraph" && tags == ["error:text_size_limit"]
 
-    render json: { translationError: { type: "error", message: } }, status:
+    error_type = tags.include?("error:rate_limit") ? "rateLimitError" : "error"
+    render json: { translationError: { type: error_type, message: } }, status:
   end
 
   def handle_generic_error(exception)

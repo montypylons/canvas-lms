@@ -53,7 +53,7 @@ describe "discussions overrides" do
     end
 
     it "shows course pace notice when expanding grades in a course with pacing on" do
-      skip "Will be fixed in VICE-5411"
+      skip "Will be fixed in VICE-5411 2025-07-15"
       @course.enable_course_paces = true
       @course.save!
       get "/courses/#{@course.id}/discussion_topics/#{@discussion_topic.id}"
@@ -62,7 +62,7 @@ describe "discussions overrides" do
     end
 
     it "toggles between due dates", priority: "2" do
-      skip "Will be fixed in VICE-5412"
+      skip "Will be fixed in VICE-5412 2025-07-15"
       get "/courses/#{@course.id}/discussion_topics/#{@discussion_topic.id}"
       f(" .toggle_due_dates").click
       wait_for_ajaximations
@@ -118,7 +118,6 @@ describe "discussions overrides" do
     before do
       Account.site_admin.enable_feature! :discussion_create
       course_with_teacher_logged_in
-      @course.account.enable_feature!(:assign_to_differentiation_tags)
       @course.account.tap do |a|
         a.settings[:allow_assign_to_differentiation_tags] = { value: true }
         a.save!

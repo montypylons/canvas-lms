@@ -23,7 +23,7 @@ import {setupServer} from 'msw/node'
 import {http, HttpResponse, graphql} from 'msw'
 import CourseWorkCombinedWidget from '../CourseWorkCombinedWidget'
 import type {BaseWidgetProps, Widget} from '../../../../types'
-import {defaultGraphQLHandlers} from '../../../../__tests__/testHelpers'
+import {defaultGraphQLHandlers, clearWidgetDashboardCache} from '../../../../__tests__/testHelpers'
 
 const tomorrow = new Date()
 tomorrow.setDate(tomorrow.getDate() + 1)
@@ -41,8 +41,7 @@ const mockStatisticsData = {
 const mockWidget: Widget = {
   id: 'course-work-combined-widget',
   type: 'course_work_combined',
-  position: {col: 1, row: 1},
-  size: {width: 2, height: 2},
+  position: {col: 1, row: 1, relative: 1},
   title: 'Course Work',
 }
 
@@ -220,6 +219,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
+  clearWidgetDashboardCache()
   window.ENV = {current_user_id: '1'} as any
 })
 
@@ -228,10 +228,10 @@ describe('CourseWorkCombinedWidget', () => {
     renderWithProviders(<CourseWorkCombinedWidget {...buildDefaultProps()} />)
 
     expect(screen.getByText('Course Work')).toBeInTheDocument()
-    expect(screen.getByText('Filter by course')).toBeInTheDocument()
 
-    // Wait for data to load
+    // Wait for data to load first, then check for filters
     await screen.findByText('Essay on Climate Change')
+    expect(screen.getByText('Course filter:')).toBeInTheDocument()
     expect(screen.getByText('Chapter 5 Quiz')).toBeInTheDocument()
     expect(screen.getByText('Discussion: Modern Art')).toBeInTheDocument()
     expect(screen.getByText('Lab Report: Chemical Reactions')).toBeInTheDocument()
@@ -409,6 +409,8 @@ describe('CourseWorkCombinedWidget', () => {
   })
 
   it('handles error state', async () => {
+    jest.spyOn(console, 'error').mockImplementation()
+
     server.use(
       graphql.query('GetUserCourseStatistics', () => {
         return HttpResponse.json({
@@ -435,7 +437,7 @@ describe('CourseWorkCombinedWidget', () => {
       http.post('/api/graphql', async ({request}) => {
         const body = (await request.json()) as {query: string; variables: any}
         if (body.query.includes('GetUserCourseWork')) {
-          return HttpResponse.json({errors: [{message: 'Internal Server Error'}]}, {status: 500})
+          return HttpResponse.json({errors: [{message: 'Internal Server Error'}]}, {status: 200})
         }
         return new Response('Query not handled', {status: 404})
       }),

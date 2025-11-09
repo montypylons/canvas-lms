@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {mockBlockContentEditorContext} from '../../../__tests__/mockBlockContentEditorContext'
 import {renderBlock} from '../../__tests__/render-helper'
 import {ImageTextBlock} from '../ImageTextBlock'
 import {ImageTextBlockProps} from '../types'
 
-jest.mock('../../../BlockContentEditorContext', () => ({
+jest.mock('../../../store', () => ({
   __esModule: true,
-  useBlockContentEditorContext: jest.fn(() => mockBlockContentEditorContext({})),
+  ...jest.requireActual('../../../store'),
+  useAppSetStore: jest.fn().mockReturnValue(jest.fn()),
 }))
 
 const useIsInEditorMock = jest.fn()
@@ -36,14 +36,15 @@ jest.mock('../../../hooks/useIsEditingBlock', () => ({
   useIsEditingBlock: () => useIsEditingBlockMock(),
 }))
 
-const setIsEditedViaEditButtonMock = jest.fn()
 const getUseIsEditingBlockMock = ({
-  isEditingBlock,
-  isEditedViaEditButton,
-}: {isEditingBlock: boolean; isEditedViaEditButton: boolean}) => ({
-  isEditingBlock,
-  isEditedViaEditButton,
-  setIsEditedViaEditButton: setIsEditedViaEditButtonMock,
+  isEditing,
+  isEditingViaEditButton,
+}: {
+  isEditing: boolean
+  isEditingViaEditButton: boolean
+}) => ({
+  isEditing,
+  isEditingViaEditButton,
 })
 
 const defaultProps: ImageTextBlockProps = {
@@ -71,7 +72,7 @@ describe('ImageTextBlock', () => {
     beforeEach(() => {
       useIsInEditorMock.mockReturnValue(true)
       useIsEditingBlockMock.mockReturnValue(
-        getUseIsEditingBlockMock({isEditingBlock: true, isEditedViaEditButton: false}),
+        getUseIsEditingBlockMock({isEditing: true, isEditingViaEditButton: false}),
       )
     })
 
@@ -85,7 +86,7 @@ describe('ImageTextBlock', () => {
     beforeEach(() => {
       useIsInEditorMock.mockReturnValue(true)
       useIsEditingBlockMock.mockReturnValue(
-        getUseIsEditingBlockMock({isEditingBlock: false, isEditedViaEditButton: false}),
+        getUseIsEditingBlockMock({isEditing: false, isEditingViaEditButton: false}),
       )
     })
 

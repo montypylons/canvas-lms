@@ -282,12 +282,16 @@ describe CoursesController do
       context "on accessibility column" do
         before do
           account = Account.default
-          account.settings[:enable_content_a11y_checker] = true
-          account.save!
+          account.enable_feature!(:a11y_checker)
+          @course1.enable_feature!(:a11y_checker_eap)
+          @course2.enable_feature!(:a11y_checker_eap)
+
+          # Disable scan callbacks to avoid interference
+          allow_any_instance_of(Course).to receive(:a11y_checker_enabled?).and_return(false)
 
           wiki_page = wiki_page_model(course: @course1, title: "Wiki Page", body: "<div><h1>Document Title</h1></div>")
-          scan = AccessibilityResourceScan.for_context(wiki_page).first
-          scan.update!(
+          scan = AccessibilityResourceScan.create!(
+            context: wiki_page,
             course: @course1,
             workflow_state: "completed",
             resource_name: wiki_page.title,
@@ -301,6 +305,9 @@ describe CoursesController do
             rule_type: Accessibility::Rules::HeadingsStartAtH2Rule.id,
             node_path: "./div/h1"
           )
+
+          # Re-enable for the actual test
+          allow_any_instance_of(Course).to receive(:a11y_checker_enabled?).and_call_original
         end
 
         it "lists courses with less accessibility issues first" do
@@ -514,7 +521,7 @@ describe CoursesController do
       end
 
       describe "sorting" do
-        include_examples "sorting" do
+        it_behaves_like "sorting" do
           let(:type) { "current" }
           let(:sort_column) { "cc_sort" }
           let(:order_column) { "cc_order" }
@@ -794,7 +801,7 @@ describe CoursesController do
       end
 
       describe "sorting" do
-        include_examples "sorting" do
+        it_behaves_like "sorting" do
           let(:type) { "past" }
           let(:sort_column) { "pc_sort" }
           let(:order_column) { "pc_order" }
@@ -935,7 +942,7 @@ describe CoursesController do
       end
 
       describe "sorting" do
-        include_examples "sorting" do
+        it_behaves_like "sorting" do
           let(:type) { "future" }
           let(:sort_column) { "fc_sort" }
           let(:order_column) { "fc_order" }
@@ -1112,6 +1119,11 @@ describe CoursesController do
       expect(controller.js_env[:MSFT_SYNC_CAN_BYPASS_COOLDOWN]).to be false
     end
 
+    it "sets ams remote settings in the remote env" do
+      subject
+      expect(controller.remote_env[:ams]).to_not be_nil
+    end
+
     it "sets the external tools create url" do
       user_session(@teacher)
       get "settings", params: { course_id: @course.id }
@@ -1226,6 +1238,56 @@ describe CoursesController do
       expect(assigns[:course_settings_sub_navigation_tools].size).to eq 1
       assigned_tool = assigns[:course_settings_sub_navigation_tools].first
       expect(assigned_tool.id).to eq active_tool.id
+    end
+
+    it "sets COURSE_DEFAULT_GRADING_SCHEME_ID when grading_scheme_updates feature is enabled" do
+      Account.site_admin.enable_feature!(:grading_scheme_updates)
+      grading_standard_data = [["A", 0.9], ["B", 0.8], ["C", 0.7], ["D", 0.6], ["F", 0.0]]
+      grading_standard = GradingStandard.create!(
+        context: @course.account,
+        workflow_state: "active",
+        data: grading_standard_data,
+        title: "Test Grading Standard"
+      )
+      @course.update!(grading_standard_id: grading_standard.id)
+
+      user_session(@teacher)
+      get "settings", params: { course_id: @course.id }
+      expect(controller.js_env[:COURSE_DEFAULT_GRADING_SCHEME_ID]).to eq grading_standard.id
+    end
+
+    it "sets COURSE_DEFAULT_GRADING_SCHEME_ID from account default when course has no grading standard" do
+      Account.site_admin.enable_feature!(:grading_scheme_updates)
+      grading_standard_data = [["A", 0.9], ["B", 0.8], ["C", 0.7], ["D", 0.6], ["F", 0.0]]
+      account_grading_standard = GradingStandard.create!(
+        context: @course.account,
+        workflow_state: "active",
+        data: grading_standard_data,
+        title: "Account Default Grading Standard"
+      )
+      @course.account.update!(grading_standard_id: account_grading_standard.id)
+
+      # Explicitly verify course has no grading_standard_id
+      expect(@course.grading_standard_id).to be_nil
+
+      user_session(@teacher)
+      get "settings", params: { course_id: @course.id }
+      expect(controller.js_env[:COURSE_DEFAULT_GRADING_SCHEME_ID]).to eq account_grading_standard.id
+    end
+
+    it "does not set COURSE_DEFAULT_GRADING_SCHEME_ID when grading_scheme_updates feature is disabled" do
+      grading_standard_data = [["A", 0.9], ["B", 0.8], ["C", 0.7], ["D", 0.6], ["F", 0.0]]
+      grading_standard = GradingStandard.create!(
+        context: @course.account,
+        workflow_state: "active",
+        data: grading_standard_data,
+        title: "Test Grading Standard"
+      )
+      @course.update!(grading_standard_id: grading_standard.id)
+
+      user_session(@teacher)
+      get "settings", params: { course_id: @course.id }
+      expect(controller.js_env[:COURSE_DEFAULT_GRADING_SCHEME_ID]).to be_nil
     end
   end
 
@@ -2435,7 +2497,6 @@ describe CoursesController do
 
     context "differentiation tag rollback" do
       before do
-        @course.account.enable_feature!(:assign_to_differentiation_tags)
         @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
         @course.account.save!
 
@@ -2861,6 +2922,14 @@ describe CoursesController do
       put "update", params: { id: @course.id, course: { name: "new course name" } }
       expect(assigns[:course]).not_to be_nil
       expect(assigns[:course]).to eql(@course)
+    end
+
+    it "returns a 400 if the start_at date is a unix timestamp" do
+      user_session(@teacher)
+      put "update", params: { id: @course.id, course: { start_at: 1.day.from_now.to_i, name: "Updated" } }, as: :json
+      expect(response).to have_http_status :bad_request
+      json = response.parsed_body
+      expect(json["errors"]["start_at"][0]["message"]).to eq "must be in ISO8601 format"
     end
 
     it "updates some settings and stuff" do
@@ -3916,6 +3985,17 @@ describe CoursesController do
         put "update", params: { id: @course.id, course: { disable_csp: "0" } }
         @course.reload
         expect(@course.csp_enabled?).to be_truthy
+      end
+
+      it "does not update the csp setting when csp is locked" do
+        @account.lock_csp!
+        account_admin_user(active_all: true, account: @account)
+        user_session(@admin)
+
+        put "update", params: { id: @course.id, course: { disable_csp: "1" } }
+        @course.reload
+        expect(@course.csp_enabled?).to be_truthy
+        @account.unlock_csp!
       end
 
       it "does not update the csp setting when not admin" do
@@ -5262,13 +5342,13 @@ describe CoursesController do
     describe "render ui" do
       subject { get :youtube_migration, params: { course_id: @course.id } }
 
-      include_examples "youtube migration protection"
+      it_behaves_like "youtube migration protection"
     end
 
     describe "get last scan" do
       subject { get :youtube_migration_scan, params: { course_id: @course.id } }
 
-      include_examples "youtube migration protection"
+      it_behaves_like "youtube migration protection"
 
       context "when ff is on" do
         before do
@@ -5379,7 +5459,7 @@ describe CoursesController do
     describe "post a new scan" do
       subject { post :start_youtube_migration_scan, params: { course_id: @course.id } }
 
-      include_examples "youtube migration protection"
+      it_behaves_like "youtube migration protection"
     end
 
     describe "post a new convert" do
@@ -5404,7 +5484,7 @@ describe CoursesController do
         allow(service).to receive(:convert_embed).and_return(progress)
       end
 
-      include_examples "youtube migration protection"
+      it_behaves_like "youtube migration protection"
 
       context "when authorized" do
         before do
@@ -5639,6 +5719,191 @@ describe CoursesController do
         end
       end
     end
+
+    describe "update youtube migration scan" do
+      subject do
+        put :update_youtube_migration_scan, params: {
+          course_id: @course.id,
+          scan_id: defined?(scan_progress) ? scan_progress.id : default_scan_progress.id,
+          new_quizzes_scan_results: defined?(new_quizzes_scan_results) ? new_quizzes_scan_results : default_new_quizzes_scan_results,
+          new_quizzes_scan_status: defined?(new_quizzes_scan_status) ? new_quizzes_scan_status : "completed"
+        }
+      end
+
+      let(:default_scan_progress) do
+        Progress.create!(
+          tag: "youtube_embed_scan",
+          context: @course,
+          workflow_state: "waiting_for_external_tool",
+          results: {
+            resources: {},
+            total_count: 0,
+          }
+        )
+      end
+
+      let(:default_new_quizzes_scan_results) do
+        { resources: [], total_count: 0 }
+      end
+
+      let(:scan_progress) do
+        Progress.create!(
+          tag: "youtube_embed_scan",
+          context: @course,
+          workflow_state: "waiting_for_external_tool",
+          results: {
+            resources: {
+              "WikiPage|123" => {
+                name: "Test Page",
+                id: 123,
+                type: "WikiPage",
+                content_url: "/courses/#{@course.id}/pages/test-page",
+                count: 1,
+                embeds: [
+                  {
+                    path: "//iframe[@src='https://www.youtube.com/embed/abc123']",
+                    id: 123,
+                    resource_type: "WikiPage",
+                    field: "body",
+                    src: "https://www.youtube.com/embed/abc123"
+                  }
+                ]
+              }
+            },
+            total_count: 1,
+            canvas_scan_completed_at: 2.hours.ago.utc,
+            completed_at: 2.hours.ago.utc
+          }
+        )
+      end
+
+      let(:new_quizzes_scan_results) do
+        {
+          resources: [
+            {
+              name: "New Quiz",
+              id: 456,
+              type: "Quiz",
+              content_url: "/courses/#{@course.id}/quizzes/456",
+              count: 2,
+              embeds: [
+                {
+                  path: "//iframe[@src='https://www.youtube.com/embed/xyz789']",
+                  id: 456,
+                  resource_type: "Quiz",
+                  field: "instructions",
+                  src: "https://www.youtube.com/embed/xyz789"
+                },
+                {
+                  path: "//iframe[@src='https://www.youtube.com/embed/def456']",
+                  id: 456,
+                  resource_type: "Quiz",
+                  field: "instructions",
+                  src: "https://www.youtube.com/embed/def456"
+                }
+              ]
+            }
+          ],
+          total_count: 2,
+        }
+      end
+
+      let(:new_quizzes_scan_status) { "completed" }
+
+      it_behaves_like "youtube migration protection"
+
+      context "when feature flag is disabled" do
+        before do
+          @course.disable_feature!(:youtube_migration)
+          @teacher = user_factory
+          @course.enroll_teacher(@teacher).accept!
+          user_session(@teacher)
+        end
+
+        it "returns not found" do
+          subject
+          expect(response).to have_http_status(:not_found)
+        end
+      end
+
+      context "when authorized" do
+        before do
+          @course.enable_feature!(:youtube_migration)
+          @teacher = user_factory
+          @course.enroll_teacher(@teacher).accept!
+          user_session(@teacher)
+        end
+
+        it "successfully updates scan with new quizzes results when status is completed" do
+          expect(scan_progress.results[:total_count]).to eq(1)
+          expect(scan_progress.results[:resources].keys).to eq(["WikiPage|123"])
+          expect(scan_progress.workflow_state).to eq("waiting_for_external_tool")
+
+          subject
+
+          expect(response).to have_http_status(:ok)
+          json = response.parsed_body
+          expect(json["success"]).to be true
+
+          scan_progress.reload
+          expect(scan_progress.workflow_state).to eq("completed")
+          expect(scan_progress.results[:total_count]).to eq(3)
+          expect(scan_progress.results[:resources].keys).to include("WikiPage|123", "Quiz|456")
+          expect(scan_progress.results[:resources]["Quiz|456"][:name]).to eq("New Quiz")
+          expect(scan_progress.results[:resources]["Quiz|456"][:count]).to eq("2")
+          expect(scan_progress.results[:new_quizzes_scan_status]).to eq("completed")
+        end
+
+        it "handles scan not found" do
+          put :update_youtube_migration_scan, params: {
+            course_id: @course.id,
+            scan_id: 99_999,
+            new_quizzes_scan_results:,
+            new_quizzes_scan_status: "completed"
+          }
+
+          expect(response).to have_http_status(:not_found)
+          json = response.parsed_body
+          expect(json["error"]).to eq("Youtube Scan not found")
+        end
+
+        it "handles failed new quizzes scan status but still completes" do
+          put :update_youtube_migration_scan, params: {
+            course_id: @course.id,
+            scan_id: scan_progress.id,
+            new_quizzes_scan_results: {},
+            new_quizzes_scan_status: "failed"
+          }
+
+          expect(response).to have_http_status(:ok)
+          scan_progress.reload
+          expect(scan_progress.workflow_state).to eq("completed")
+          expect(scan_progress.results[:new_quizzes_scan_status]).to eq("failed")
+          expect(scan_progress.results[:completed_at]).to be_present
+        end
+
+        it "handles service errors gracefully" do
+          allow_any_instance_of(YoutubeMigrationService).to receive(:process_new_quizzes_scan_update).and_raise(StandardError, "Test error")
+          subject
+
+          expect(response).to have_http_status(:internal_server_error)
+          json = response.parsed_body
+          expect(json["error"]).to eq("An Error occured during updating the youtube scan results")
+        end
+
+        it "handles nil new_quizzes_scan_results gracefully" do
+          put :update_youtube_migration_scan, params: {
+            course_id: @course.id,
+            scan_id: scan_progress.id,
+            new_quizzes_scan_status: "failed"
+          }
+
+          expect(response).to have_http_status(:ok)
+          scan_progress.reload
+          expect(scan_progress.results[:new_quizzes_scan_status]).to eq("failed")
+        end
+      end
+    end
   end
 
   context "attachments to syllabus body with location tagging" do
@@ -5738,96 +6003,88 @@ describe CoursesController do
     end
   end
 
-  describe "request metrics tracking for users action" do
-    before do
+  describe "#restore_version" do
+    before :once do
       course_with_teacher(active_all: true)
-      student_in_course(active_all: true)
+      Account.site_admin.enable_feature!(:syllabus_versioning)
+      @account = @course.account
+      @account.enable_feature!(:allow_attachment_association_creation)
+      @account.enable_feature!(:file_association_access)
+    end
+
+    before do
       user_session(@teacher)
-      allow(InstStatsd::Statsd).to receive(:timing)
     end
 
-    # Helper methods for consistent test setup
-    def set_gradebook_headers(correlation_id: "test-correlation-id")
-      request.env["HTTP_REFERER"] = "https://example.com/gradebook"
-      request.env["HTTP_CORRELATION_ID"] = correlation_id
+    it "requires syllabus_versioning feature flag" do
+      Account.site_admin.disable_feature!(:syllabus_versioning)
+      post "restore_version", params: { course_id: @course.id, version_id: 1 }
+      expect(response).to have_http_status(:not_found)
     end
 
-    def set_non_gradebook_headers(correlation_id: "test-correlation-id")
-      request.env["HTTP_REFERER"] = "https://example.com/other-page"
-      request.env["HTTP_CORRELATION_ID"] = correlation_id
+    it "requires manage_course_content_edit permission" do
+      student_in_course(course: @course, active_all: true)
+      user_session(@student)
+      post "restore_version", params: { course_id: @course.id, version_id: 1 }
+      expect(response).to have_http_status(:unauthorized)
     end
 
-    def make_request
-      get :users, params: { course_id: @course.id }, format: :json
+    it "restores a previous syllabus version" do
+      @course.update!(syllabus_body: "<p>Original content</p>")
+      version_1 = @course.versions.last.number
+
+      @course.update!(syllabus_body: "<p>Updated content</p>")
+
+      post "restore_version", params: { course_id: @course.id, version_id: version_1 }, format: :json
+      expect(response).to be_successful
+
+      @course.reload
+      expect(@course.syllabus_body).to include("Original content")
     end
 
-    def expect_metrics_sent_with(expected_tags = {})
-      expect(InstStatsd::Statsd).to have_received(:timing).with(
-        "canvas.controller.request_time",
-        be_a(Float),
-        tags: {
-          controller: "courses",
-          action: "users",
-          method: "get",
-          referer: "/gradebook",
-          domain: be_a(String),
-          correlation_id: "test-correlation-id"
-        }.merge(expected_tags)
-      )
+    it "restores syllabus with images and creates attachment associations" do
+      attachment_model(context: @course)
+      syllabus_with_image = "<p><img src=\"/courses/#{@course.id}/files/#{@attachment.id}/preview\"></p>"
+
+      @course.saving_user = @teacher
+      @course.update!(syllabus_body: syllabus_with_image)
+      version_with_image = @course.versions.last.number
+
+      @course.saving_user = @teacher
+      @course.update!(syllabus_body: "<p>No images here</p>")
+
+      expect do
+        post "restore_version", params: { course_id: @course.id, version_id: version_with_image }, format: :json
+      end.not_to raise_error
+
+      expect(response).to be_successful
+      @course.reload
+      expect(@course.syllabus_body).to include("files/#{@attachment.id}")
+      expect(@course.attachment_associations.where(context_concern: "syllabus_body").pluck(:attachment_id)).to include(@attachment.id)
     end
 
-    def expect_no_metrics_sent
-      expect(InstStatsd::Statsd).not_to have_received(:timing).with("canvas.controller.request_time", any_args)
+    it "sets the saving_user for attachment association tracking" do
+      attachment_model(context: @course)
+      syllabus_with_image = "<p><img src=\"/courses/#{@course.id}/files/#{@attachment.id}/preview\"></p>"
+
+      @course.saving_user = @teacher
+      @course.update!(syllabus_body: syllabus_with_image)
+      version_with_image = @course.versions.last.number
+
+      @course.saving_user = @teacher
+      @course.update!(syllabus_body: "<p>No images</p>")
+
+      post "restore_version", params: { course_id: @course.id, version_id: version_with_image }, format: :json
+
+      expect(response).to be_successful
+      association = @course.attachment_associations.where(context_concern: "syllabus_body", attachment_id: @attachment.id).first
+      expect(association).not_to be_nil
+      expect(association.user_id).to eq(@teacher.id)
     end
 
-    context "when tracking conditions are met" do
-      it "sends success metrics with gradebook referer and correlation_id" do
-        set_gradebook_headers
-
-        make_request
-
-        expect_metrics_sent_with(status: "success")
-      end
-    end
-
-    context "when tracking conditions are not met" do
-      it "does not send metrics without gradebook referer" do
-        set_non_gradebook_headers
-
-        make_request
-
-        expect_no_metrics_sent
-      end
-
-      it "does not send metrics without correlation_id" do
-        request.env["HTTP_REFERER"] = "https://example.com/gradebook"
-
-        make_request
-
-        expect_no_metrics_sent
-      end
-    end
-
-    context "when request fails with exception" do
-      it "sends error metrics for Ruby exceptions" do
-        set_gradebook_headers
-        # Mock the users action itself to raise an exception
-        allow(@controller).to receive(:users) do
-          raise StandardError, "test error"
-        end
-
-        # The exception may be rescued by Rails, so we don't expect it to propagate
-        begin
-          make_request
-        rescue
-          # Exception may or may not propagate depending on Rails rescue handling
-        end
-
-        expect_metrics_sent_with(
-          status: "error",
-          error_type: "StandardError"
-        )
-      end
+    it "returns error for non-existent version" do
+      post "restore_version", params: { course_id: @course.id, version_id: 999 }, format: :json
+      expect(response).to have_http_status(:not_found)
     end
   end
 end

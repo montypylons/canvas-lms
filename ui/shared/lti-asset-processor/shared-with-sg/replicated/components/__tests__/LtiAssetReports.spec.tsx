@@ -16,17 +16,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {describe, expect, it, fn, clearAllMocks} from '../../../__tests__/testPlatformShims'
-import {LtiAssetReports} from '../LtiAssetReports'
 import {fireEvent, waitFor} from '@testing-library/react'
-import {renderComponent} from '../../../__tests__/renderingShims'
-import type {LtiAssetReport} from '../../types/LtiAssetReports'
-import {defaultLtiAssetProcessors} from '../../__fixtures__/default/ltiAssetProcessors'
-import {makeMockReport} from '../../__fixtures__/default/ltiAssetReports'
-
+import {HttpResponse, http} from 'msw'
 import {setupServer} from 'msw/node'
-import {http, HttpResponse} from 'msw'
+import {renderComponent} from '../../../__tests__/renderingShims'
+import {clearAllMocks, describe, expect, fn, it} from '../../../__tests__/testPlatformShims'
+import {defaultLtiAssetProcessors} from '../../__fixtures__/default/ltiAssetProcessors'
+import {
+  defaultLtiAssetReportsForDiscussion,
+  makeMockReport,
+} from '../../__fixtures__/default/ltiAssetReports'
 import type {ResubmitLtiAssetReportsParams} from '../../mutations/resubmitLtiAssetReports'
+import type {LtiAssetReport} from '../../types/LtiAssetReports'
+import {LtiAssetReports} from '../LtiAssetReports'
 
 const server = setupServer()
 
@@ -93,6 +95,7 @@ describe('LtiAssetReports', () => {
         processorId: '1000',
         asset: {
           attachmentId: '20001',
+          discussionEntryVersion: null,
         },
       }),
       makeMockReport({
@@ -100,6 +103,7 @@ describe('LtiAssetReports', () => {
         processorId: '1001',
         asset: {
           attachmentId: '20001',
+          discussionEntryVersion: null,
         },
       }),
       makeMockReport({
@@ -107,6 +111,7 @@ describe('LtiAssetReports', () => {
         processorId: '1000',
         asset: {
           attachmentId: '20002',
+          discussionEntryVersion: null,
         },
       }),
     ]
@@ -235,7 +240,7 @@ describe('LtiAssetReports', () => {
 
       const btn = resubmitButtons[0]
       if (!btn) {
-        throw 'no resubmit button'
+        throw new Error('no resubmit button')
       }
       fireEvent.click(btn)
 
@@ -284,7 +289,7 @@ describe('LtiAssetReports', () => {
     it('shows a resubmit button per AP', () => {
       // file2-AP1001-report1 still missing, another AP 1000 report is resubmittable
       const rep = reports.find(r => r.title === 'file2-AP1000-report1')
-      if (!rep) throw 'bad test setup'
+      if (!rep) throw new Error('bad test setup')
       rep.resubmitAvailable = true
 
       const {getAllByText} = setup('online_upload')
@@ -317,6 +322,7 @@ describe('LtiAssetReports', () => {
           processorId: '1000',
           asset: {
             submissionAttempt: 1,
+            discussionEntryVersion: null,
           },
         }),
         makeMockReport({
@@ -324,6 +330,7 @@ describe('LtiAssetReports', () => {
           processorId: '1000',
           asset: {
             submissionAttempt: 1,
+            discussionEntryVersion: null,
           },
         }),
         makeMockReport({
@@ -331,6 +338,7 @@ describe('LtiAssetReports', () => {
           processorId: '1001',
           asset: {
             submissionAttempt: 1,
+            discussionEntryVersion: null,
           },
         }),
       ]
@@ -345,6 +353,60 @@ describe('LtiAssetReports', () => {
       const {getAllByText} = setup('online_text_entry')
       expect(getAllByText('MyToolTitle1 · MyAssetProcessor1')).toHaveLength(1)
       expect(getAllByText('MyToolTitle2 · MyAssetProcessor2')).toHaveLength(1)
+    })
+  })
+
+  describe('with discussion_topic submission type', () => {
+    const setupDiscussion = () => {
+      const attempt = '1'
+      const studentId = '101'
+
+      return renderComponent(
+        <LtiAssetReports
+          attachments={[]}
+          reports={reports}
+          assetProcessors={defaultLtiAssetProcessors}
+          attempt={attempt}
+          studentIdForResubmission={studentId}
+          submissionType="discussion_topic"
+          showDocumentDisplayName={true}
+        />,
+      )
+    }
+
+    beforeEach(() => {
+      attachments = []
+      reports = defaultLtiAssetReportsForDiscussion({
+        discussionEntryVersionId: 'entry_456',
+        createdAt: '2025-01-20T10:30:00Z',
+        messageIntro: 'My discussion post content',
+      })
+    })
+
+    it('shows the heading for discussion entries with formatted display name', () => {
+      const {getAllByText} = setupDiscussion()
+
+      // Should show formatted display name containing date and quoted message intro
+      // There are two instances because there is one for each processor with reports for the asset
+      expect(getAllByText(/"My discussion post content"/)).toHaveLength(2)
+    })
+
+    it('shows a heading per AP (with tool title and AP title)', () => {
+      const {getAllByText} = setupDiscussion()
+      expect(getAllByText('MyToolTitle1 · MyAssetProcessor1')).toHaveLength(1)
+      expect(getAllByText('MyToolTitle2 · MyAssetProcessor2')).toHaveLength(1)
+    })
+
+    it('renders discussion report comments', () => {
+      const {getByText} = setupDiscussion()
+      expect(getByText('comment for Discussion Analysis Report')).toBeInTheDocument()
+      expect(getByText('comment for Discussion Content Check')).toBeInTheDocument()
+      expect(getByText('comment for Discussion Failed Report')).toBeInTheDocument()
+    })
+
+    it('renders error message for failed discussion reports', () => {
+      const {getByText} = setupDiscussion()
+      expect(getByText('Unable to process: File is too large.')).toBeInTheDocument()
     })
   })
 })

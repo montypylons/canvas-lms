@@ -976,7 +976,7 @@ describe DiscussionTopicsApiController do
     before do
       course_with_teacher(active_all: true)
       allow(InstStatsd::Statsd).to receive(:distributed_increment)
-      allow(InstStatsd::Statsd).to receive(:gauge)
+      allow(InstStatsd::Statsd).to receive(:distribution)
     end
 
     it "should update the discussions types to 'threaded' and 'not_threaded' according to the parameters" do
@@ -993,18 +993,18 @@ describe DiscussionTopicsApiController do
 
       expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("discussion_topic.migrate_disallow_manage.count").exactly(:once)
       expect(InstStatsd::Statsd)
-        .to have_received(:gauge)
+        .to have_received(:distribution)
         .with(
-          "discussion_topic.migrate_disallow_manage.discussions_updated",
+          "discussion_topic.migrate_disallow_manage.discussions_updated_count",
           1,
           tags: { type: DiscussionTopic::DiscussionTypes::THREADED }
         )
         .once
 
       expect(InstStatsd::Statsd)
-        .to have_received(:gauge)
+        .to have_received(:distribution)
         .with(
-          "discussion_topic.migrate_disallow_manage.discussions_updated",
+          "discussion_topic.migrate_disallow_manage.discussions_updated_count",
           1,
           tags: { type: DiscussionTopic::DiscussionTypes::NOT_THREADED }
         )

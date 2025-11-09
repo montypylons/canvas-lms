@@ -44,6 +44,8 @@ module Types
     implements Interfaces::TimestampInterface
     implements Interfaces::LegacyIDInterface
 
+    connection_type_class TotalCountConnection
+
     field :created_at, Types::DateTimeType, null: false
     field :draft, Boolean, null: false
     field :submission_id, ID, null: false
@@ -162,7 +164,8 @@ module Types
 
     field :can_reply, Boolean, null: true
     def can_reply
-      object.submission.grants_right?(current_user, :comment)
+      !object.submission.course.concluded? &&
+        object.submission.grants_right?(current_user, :comment)
     end
 
     field :provisional, Boolean, null: false

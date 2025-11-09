@@ -30,7 +30,10 @@ import {
   IconWarningBorderlessSolid,
   IconReplyAll2Line,
   IconCommentLine,
-  IconLinkLine
+  IconLinkLine,
+  IconAiSolid,
+  IconXLine,
+  IconAiColoredSolid,
 } from '@instructure/ui-icons'
 
 import {IconButton} from '@instructure/ui-buttons'
@@ -38,13 +41,29 @@ import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
 import ReadIcon from '@canvas/read-icon'
 import UnreadIcon from '@canvas/unread-icon'
+import {useTranslation} from '../../hooks/useTranslation'
+import {useTranslationStore} from '../../hooks/useTranslationStore'
 
 const I18n = createI18nScope('discussion_posts')
 
 // Reason: <Menu> in v6 of InstUI requires a ref to bind too or errors
 // are produced by the menu causing the page to scroll all over the place
 export const ThreadActions = props => {
+  const {tryTranslate} = useTranslation()
+  const clearEntry = useTranslationStore(state => state.clearEntry)
+  const translateAll = useTranslationStore(state => state.translateAll)
+
+  const entryInfo = useTranslationStore(state => state.entries[props.entry.id])
+
   const menuItems = useMemo(() => {
+    const handleTranslate = () => {
+      tryTranslate(props.entry.id, props.entry.message)
+    }
+
+    const handleHideTranslation = () => {
+      clearEntry(props.entry.id)
+    }
+
     return getMenuConfigs({
       onMarkAllAsRead: props.onMarkAllAsRead,
       onMarkAllAsUnread: props.onMarkAllAsUnread,
@@ -61,8 +80,12 @@ export const ThreadActions = props => {
       onMarkThreadAsRead: props.onMarkThreadAsRead,
       onReport: props.onReport,
       isReported: props.isReported,
+      onTranslate: handleTranslate,
+      onHideTranslation: handleHideTranslation,
+      hasTranslation: !!entryInfo?.translatedMessage,
+      translateAll: translateAll,
     }).map(config => renderMenuItem({...config}, props.id))
-  }, [props])
+  }, [props, tryTranslate, clearEntry, translateAll, entryInfo?.translatedMessage])
 
   if (props.isSearch) {
     return null
@@ -165,10 +188,10 @@ const getMenuConfigs = props => {
       key: 'copyLink',
       icon: <IconLinkLine />,
       label: I18n.t('Copy Link'),
-      selectionCallback: async function() {
+      selectionCallback: async function () {
         const url = `${window.location.origin}/courses/${ENV.course_id}/discussion_topics/${ENV.discussion_topic_id}?entry_id=${props.permalinkId}`
         await navigator.clipboard.writeText(url)
-      }
+      },
     })
   }
   if (props.goToQuotedReply) {
@@ -224,6 +247,30 @@ const getMenuConfigs = props => {
       disabled: props.isReported,
     })
   }
+
+  if (window.ENV.ai_translation_improvements && !props.translateAll) {
+    options.push({
+      key: 'separator2',
+      separator: true,
+    })
+
+    if (props.hasTranslation) {
+      options.push({
+        key: 'hideTranslation',
+        icon: <IconXLine />,
+        label: I18n.t('Hide Translation'),
+        selectionCallback: props.onHideTranslation,
+      })
+    } else {
+      options.push({
+        key: 'translate',
+        icon: <IconAiColoredSolid />,
+        label: I18n.t('Translate Text'),
+        selectionCallback: props.onTranslate,
+      })
+    }
+  }
+
   return options
 }
 
@@ -259,6 +306,7 @@ const renderMenuItem = (
 ThreadActions.propTypes = {
   authorName: PropTypes.string,
   id: PropTypes.string.isRequired,
+  entry: PropTypes.object.isRequired,
   onMarkAllAsUnread: PropTypes.func,
   onMarkAllAsRead: PropTypes.func,
   onMarkThreadAsRead: PropTypes.func,

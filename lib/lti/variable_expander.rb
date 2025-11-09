@@ -607,7 +607,7 @@ module Lti
                        -> { @context.is_a?(Course) || (@placement == :user_navigation && @context.is_a?(User) && sis_pseudonym) }
 
     # With respect to the current course, recursively returns the context ids of the courses from which content has been copied (excludes cartridge imports).
-    # Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated' will show at the end of the list.
+    # Will show a limit of 1000 context ids. When the number passes 1000, 'truncated' will show at the end of the list.
     #
     # This is an alias of `Canvas.course.previousContextIds.recursive`.
     #
@@ -619,6 +619,21 @@ module Lti
                        [],
                        -> { lti_helper.recursively_fetch_previous_lti_context_ids },
                        COURSE_GUARD
+
+    # With respect to the current assignment, recursively returns the activity (assignment)
+    # LTI ids of the assignments from which the current assignment was copied or imported.
+    # The value of this variable is updated only if the source assignment has at least one asset processor attached.
+    # Tools can use this to detect copies and automatically import related resources.
+    # The result is limited to 1000 ids. When the number passes 1000, 'truncated' will show at the end of the list.
+    #
+    # @example
+    #   ```
+    #   "25de3090-de71-4419-9a7c-53b509945710,057361e2-87f9-4597-b072-4b7464bdefde"
+    #   ```
+    register_expansion "Activity.id.history",
+                       [],
+                       -> { activity_id_history },
+                       ASSIGNMENT_GUARD
 
     # communicates the kind of browser window/frame where the Canvas has launched a tool
     # @launch_parameter launch_presentation_document_target
@@ -1060,7 +1075,7 @@ module Lti
     # enabled.
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "com.instructure.Assignment.anonymous_grading",
                        [],
@@ -1072,7 +1087,7 @@ module Lti
     # Assignment types: points, percentage, gpa_scale are all considered quantitative.
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "com.instructure.Assignment.restrict_quantitative_data",
                        [],
@@ -1176,6 +1191,17 @@ module Lti
                        [],
                        -> { lti_helper.previous_course_ids },
                        COURSE_GUARD
+
+    # Returns "true" if the RCE Studio embed improvements feature is enabled
+    # for the current course, or account context "false" otherwise.
+    # This allows LTI tools to adapt their UI based on Canvas feature flags.
+    # @example
+    #   ```
+    #   "true"
+    #   ```
+    register_expansion "com.instructure.Course.rce_studio_embed_improvements",
+                       [],
+                       -> { @context.feature_enabled?(:rce_studio_embed_improvements).to_s }
 
     # Returns the full name of the launching user.
     # @launch_parameter lis_person_name_full
@@ -1464,7 +1490,7 @@ module Lti
     # Returns true for root account admins and false for all other roles.
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.user.isRootAccountAdmin",
                        [],
@@ -1662,7 +1688,7 @@ module Lti
     #
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.course.sectionRestricted",
                        [],
@@ -1727,6 +1753,28 @@ module Lti
     register_expansion "Canvas.assignment.id",
                        [],
                        -> { @assignment.id },
+                       ASSIGNMENT_GUARD
+
+    # Returns the new_quizzes type of the assignment that was launched
+    #
+    # @example
+    #   ```
+    #   "graded_quiz"
+    #   ```
+    register_expansion "Canvas.assignment.new_quizzes_type",
+                       [],
+                       -> { @assignment.new_quizzes_type },
+                       ASSIGNMENT_GUARD
+
+    # Returns whether the assignment that was launched anonymizes the participants
+    #
+    # @example
+    #   ```
+    #   true
+    #   ```
+    register_expansion "Canvas.assignment.anonymous_participants",
+                       [],
+                       -> { @assignment.anonymous_participants? },
                        ASSIGNMENT_GUARD
 
     # Returns the assignment_description of the assignment that was launched.
@@ -1848,7 +1896,7 @@ module Lti
     #
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.assignment.hideInGradebook",
                        [],
@@ -1859,7 +1907,7 @@ module Lti
     #
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.assignment.omitFromFinalGrade",
                        [],
@@ -1965,7 +2013,7 @@ module Lti
     # Only available when launched as an assignment.
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.assignment.published",
                        [],
@@ -1976,7 +2024,7 @@ module Lti
     # Only available when launched as an assignment.
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.assignment.lockdownEnabled",
                        [],
@@ -2199,7 +2247,7 @@ module Lti
     #
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "com.instructure.Course.allow_canvas_resource_selection",
                        [],
@@ -2314,7 +2362,7 @@ module Lti
     #
     # @example
     #   ```
-    #   true
+    #   "true"
     #   ```
     register_expansion "Canvas.course.aiQuizGeneration",
                        [],
@@ -2393,6 +2441,15 @@ module Lti
       AssignmentOverride.where(assignment_id: @assignment.id, set_type: "Group")
                         .where(set_id: user_differentiation_tags.pluck(:id))
                         .first
+    end
+
+    def activity_id_history
+      Rails.cache.fetch(Lti::ImportHistory.import_history_cache_key(@assignment.lti_context_id)) do
+        limit = 1000
+        results = Lti::ImportHistory.recursive_import_history(@assignment.lti_context_id, limit: limit + 1)
+        results = results.first(limit) << "truncated" if results.length > limit
+        results.join(",")
+      end
     end
   end
 end

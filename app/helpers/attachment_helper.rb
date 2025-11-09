@@ -29,15 +29,10 @@ module AttachmentHelper
     }
     url_opts[:enrollment_type] = attrs.delete(:enrollment_type) if url_opts[:enable_annotations]
 
-    if attachment.crocodoc_available?
-      begin
-        attrs[:crocodoc_session_url] = attachment.crocodoc_url(@current_user, url_opts)
-      rescue => e
-        Canvas::Errors.capture_exception(:crocodoc, e)
-      end
-    elsif attachment.canvadocable?
+    if attachment.canvadocable?
       attrs[:canvadoc_session_url] = attachment.canvadoc_url(@current_user, url_opts, access_token: params[:access_token])
     end
+    attrs[:attachment_name] = attachment.display_name
     attrs[:attachment_id] = attachment.id
     attrs[:mimetype] = attachment.mimetype
     context_name = url_helper_context_from_object(attachment.context)
@@ -125,7 +120,6 @@ module AttachmentHelper
 
     {
       canvadoc_session_url: attachment.canvadoc_url(@current_user, access_token:),
-      crocodoc_session_url: attachment.crocodoc_url(@current_user),
     }
   end
 

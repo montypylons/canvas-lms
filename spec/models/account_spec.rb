@@ -2090,22 +2090,6 @@ describe Account do
     end
   end
 
-  describe "#migrate_to_canvadocs?" do
-    before(:once) do
-      @account = Account.create!
-    end
-
-    it "is true if hijack_crocodoc_sessions is true" do
-      allow(Canvadocs).to receive(:hijack_crocodoc_sessions?).and_return(true)
-      expect(@account).to be_migrate_to_canvadocs
-    end
-
-    it "is false if hijack_crocodoc_sessions is false" do
-      allow(Canvadocs).to receive(:hijack_crocodoc_sessions?).and_return(false)
-      expect(@account).not_to be_migrate_to_canvadocs
-    end
-  end
-
   it "clears special account cache on updates to special accounts" do
     expect(Account.default.settings[:blah]).to be_nil
 
@@ -2527,6 +2511,28 @@ describe Account do
     it "returns false if the observer_appointment_groups flag is disabled" do
       Account.site_admin.disable_feature!(:observer_appointment_groups)
       expect(@account.allow_observers_in_appointment_groups?).to be false
+    end
+  end
+
+  describe "default_allow_observer_signup?" do
+    it "returns false by default" do
+      account = Account.create!
+      expect(account.default_allow_observer_signup?).to be false
+    end
+
+    it "returns true if the setting is enabled" do
+      account = Account.create!
+      account.settings[:default_allow_observer_signup] = { value: true }
+      account.save!
+      expect(account.default_allow_observer_signup?).to be true
+    end
+
+    it "inherits the setting from parent account" do
+      parent = Account.create!
+      parent.settings[:default_allow_observer_signup] = { value: true }
+      parent.save!
+      sub_account = Account.create!(parent_account: parent, root_account: parent)
+      expect(sub_account.default_allow_observer_signup?).to be true
     end
   end
 
@@ -3024,7 +3030,7 @@ describe Account do
     end
 
     it "updates submission grades in account inheriting courses/assignments and all sub account courses/assignments" do
-      @root_account.recompute_assignments_using_account_default(@new_grading_standard)
+      @root_account.recompute_assignments_using_account_default(@new_grading_standard.id)
 
       expect(@submission_root.reload.grade).to eq "A"
       expect(@submission_not_inheriting.reload.grade).to eq "F"
@@ -3033,12 +3039,21 @@ describe Account do
     end
 
     it "updates the most recent submission version in all inheriting account and sub account courses" do
-      @root_account.recompute_assignments_using_account_default(@new_grading_standard)
+      @root_account.recompute_assignments_using_account_default(@new_grading_standard.id)
 
       expect(@submission_root.reload.versions.first.model.grade).to eq "A"
       expect(@submission_not_inheriting.reload.versions.first.model.grade).to eq "F"
       expect(@submission_sub.reload.versions.first.model.grade).to eq "A"
       expect(@submission_sub_sub.reload.versions.first.model.grade).to eq "A"
+    end
+
+    it "handles nil grading_standard_id by using default instance" do
+      @root_account.recompute_assignments_using_account_default(nil)
+
+      # Should use GradingStandard.default_instance for grading
+      expect(@submission_root.reload.grade).not_to be_nil
+      expect(@submission_sub.reload.grade).not_to be_nil
+      expect(@submission_sub_sub.reload.grade).not_to be_nil
     end
   end
 
@@ -3146,17 +3161,17 @@ describe Account do
   describe "allow_assign_to_differentiation_tags?" do
     before :once do
       @account = Account.default
-      Account.site_admin.enable_feature!(:assign_to_differentiation_tags)
       @account.settings[:allow_assign_to_differentiation_tags] = { value: true }
       @account.save!
     end
 
-    it "returns true if the setting is enabled and the observer_appointment_groups flag is enabled" do
+    it "returns true if the setting is enabled" do
       expect(@account.allow_assign_to_differentiation_tags?).to be true
     end
 
-    it "returns false if the observer_appointment_groups flag is disabled" do
-      Account.site_admin.disable_feature!(:assign_to_differentiation_tags)
+    it "returns false if the setting is disabled" do
+      @account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+      @account.save!
       expect(@account.allow_assign_to_differentiation_tags?).to be false
     end
   end
@@ -3292,58 +3307,6 @@ describe Account do
 
       expect(root_account).not_to receive(:save!)
       root_account.denormalize_horizon_account_if_changed
-    end
-  end
-
-  describe "#enqueue_a11y_scan_if_enabled" do
-    let(:account) { account_model }
-
-    context "when the account is not a root account" do
-      before do
-        allow(account).to receive(:root_account?).and_return(false)
-      end
-
-      it "does not enqueue the scan" do
-        expect(Accessibility::RootAccountScannerService).not_to receive(:call)
-
-        account.update!(settings: { enable_content_a11y_checker: true })
-      end
-    end
-
-    context "when settings have not changed" do
-      it "does not enqueue the scan" do
-        expect(Accessibility::RootAccountScannerService).not_to receive(:call)
-
-        account.update!(name: "Something New")
-      end
-    end
-
-    context "when the content accessibility checker is not enabled" do
-      it "does not enqueue the scan" do
-        expect(Accessibility::RootAccountScannerService).not_to receive(:call)
-
-        account.update!(settings: { enable_content_a11y_checker: false })
-      end
-    end
-
-    context "when old settings already enabled content accessibility checker" do
-      before do
-        account.update!(settings: { enable_content_a11y_checker: true })
-      end
-
-      it "does not enqueue the scan" do
-        expect(Accessibility::RootAccountScannerService).not_to receive(:call)
-
-        account.update!(settings: { enable_content_a11y_checker: true })
-      end
-    end
-
-    context "when enable_content_a11y_checker is changed from false to true" do
-      it "calls Accessibility::RootAccountScannerService" do
-        expect(Accessibility::RootAccountScannerService).to receive(:call).with(account:)
-
-        account.update!(settings: { enable_content_a11y_checker: true })
-      end
     end
   end
 end

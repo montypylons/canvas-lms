@@ -314,12 +314,6 @@
     "clear_image_3213fe62": {
         "message": "Esborra la imatge"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Esborra el fitxer seleccionat"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Esborra el fitxer seleccionat: { filename }"
-    },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Feu clic aquí o feu-hi clic mentre premeu la tecla Maj per obrir l’editor d’HTML."
     },
@@ -352,6 +346,9 @@
     },
     "clubs_suit_c1ffedff": {
         "message": "Trèvols (coll de cartes)"
+    },
+    "collab_575ac7bc": {
+        "message": "Col·labora"
     },
     "collaborations_5c56c15f": {
         "message": "Col·laboracions"
@@ -1277,6 +1274,9 @@
     "latvian_2bbb6aab": {
         "message": "Letó"
     },
+    "learn_ad3b3505": {
+        "message": "Aprèn"
+    },
     "learn_more_about_adjacent_links_2cb9762c": {
         "message": "Obteniu més informació sobre els enllaços adjacents"
     },
@@ -1703,6 +1703,9 @@
     "operators_a2ef9a93": {
         "message": "Operadors"
     },
+    "options_3ab0ea65": {
+        "message": "Opcions"
+    },
     "or_9b70ccaa": {
         "message": "O"
     },
@@ -1829,6 +1832,9 @@
     "please_enter_a_file_name_f159edc1": {
         "message": "Introduïu un nom de fitxer"
     },
+    "please_enter_a_valid_video_url_from_a_supported_pl_30dc0596": {
+        "message": "Introduïu un URL de vídeo vàlid des d’una plataforma admesa."
+    },
     "please_select_a_file_of_a_supported_type_1fc578f2": {
         "message": "Seleccioneu un fitxer d’un tipus admès"
     },
@@ -1952,11 +1958,20 @@
     "religion_icon_246e0be1": {
         "message": "Icona de religió"
     },
+    "remove_f47dc62a": {
+        "message": "Suprimeix-ho"
+    },
+    "remove_filename_3ea029f6": {
+        "message": "Suprimiu { filename }"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Suprimeix l''estil de la capçalera"
     },
     "remove_link_d1f2f4d0": {
         "message": "Elimina l''enllaç"
+    },
+    "remove_studio_media_f913e502": {
+        "message": "Suprimiu l''element multimèdia de l’Studio"
     },
     "replace_all_d3d68b3": {
         "message": "Substitueix-ho tot"
@@ -2480,6 +2495,9 @@
     "though_your_video_will_have_the_correct_title_in_t_90e427f3": {
         "message": "Tot i que el títol del vídeo que es mostra al explorador és el correcte, no hem pogut actualitzar-lo a la base de dades."
     },
+    "thumbnail_e0de666f": {
+        "message": "Miniatura"
+    },
     "timebar_a4d18443": {
         "message": "Barra temporal"
     },
@@ -2705,6 +2723,9 @@
     "video_player_for_title_ffd9fbc4": {
         "message": "Reproductor de vídeo per a { title }"
     },
+    "video_url_889d3263": {
+        "message": "URL de vídeo"
+    },
     "vietnamese_e7a76583": {
         "message": "Vietnamita"
     },
@@ -2830,6 +2851,9 @@
     },
     "your_webcam_may_already_be_in_use_6cd64c25": {
         "message": "És possible que la càmera web ja s''estigui utilitzant."
+    },
+    "youtube_embed_url_5c1018d4": {
+        "message": "URL integrat de YouTube"
     },
     "zeta_5ef24f0e": {
         "message": "Zeta"

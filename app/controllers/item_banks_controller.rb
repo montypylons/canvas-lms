@@ -25,13 +25,22 @@ class ItemBanksController < ApplicationController
   before_action { |c| c.active_tab = "item_banks" }
 
   def show
-    ams_service_enabled = @context.root_account.feature_enabled?(:ams_service)
-
-    return render status: :not_found, template: "shared/errors/404_message" unless ams_service_enabled
+    return render status: :not_found, template: "shared/errors/404_message" unless ams_integration_enabled?
 
     js_env(context_url: context_url(@context, :context_item_banks_url))
-    remote_env(ams: { launch_url: Services::Ams.launch_url })
+    remote_env(ams:
+      {
+        launch_url: Services::Ams.item_management_launch_url,
+        api_url: Services::Ams.api_url
+      })
 
+    @body_classes << "full-width padless-content"
     render html: '<div id="ams_container"></div>'.html_safe, layout: true
+  end
+
+  def ams_integration_enabled?
+    @context.root_account.feature_enabled?(:ams_root_account_integration) &&
+      @context.is_a?(Course) &&
+      @context.feature_enabled?(:ams_course_integration)
   end
 end

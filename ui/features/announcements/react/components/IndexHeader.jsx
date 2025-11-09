@@ -168,6 +168,7 @@ export default class IndexHeader extends Component {
           color="primary"
           display={responsiveStyles.buttonDisplay}
           id="add_announcement"
+          data-testid="add-announcement-button"
           renderIcon={IconPlusLine}
           key="addAnnouncementButton"
         >
@@ -188,8 +189,7 @@ export default class IndexHeader extends Component {
         disabled={this.props.isBusy}
         key="markAllAsReadButton"
       >
-        <ScreenReaderContent>{I18n.t('Mark All Announcement Read')}</ScreenReaderContent>
-        <PresentationContent>{I18n.t('Mark All as Read')}</PresentationContent>
+        {I18n.t('Mark All as Read')}
       </Button>
     )
   }
@@ -303,6 +303,7 @@ export default class IndexHeader extends Component {
                   <ScreenReaderContent>{I18n.t('Announcement Filter')}</ScreenReaderContent>
                 }
                 id="announcement-filter"
+                data-testid="announcement-filter"
                 name="filter-dropdown"
                 onChange={(_e, data) => this.props.searchAnnouncements({filter: data.value})}
               >

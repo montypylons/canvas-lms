@@ -66,12 +66,6 @@ RSpec.describe YoutubeMigrationService do
     )
   end
 
-  before do
-    allow(Lti::ContextToolFinder).to receive(:all_tools_for)
-      .with(root_account)
-      .and_return(class_double(ContextExternalTool, active: class_double(ContextExternalTool, find_by: studio_tool)))
-  end
-
   describe "#queue_scan_course_for_embeds" do
     it "creates a new progress when none exists" do
       expect { described_class.queue_scan_course_for_embeds(course) }
@@ -153,7 +147,7 @@ RSpec.describe YoutubeMigrationService do
         end
 
         it "does not emit a live event" do
-          allow(course).to receive_messages(lti_context_id: "course_lti_context_123", id: 1)
+          allow(course).to receive_messages(global_id: "course_global_id_123", id: 1)
           expect(Canvas::LiveEvents).not_to receive(:scan_youtube_links)
 
           described_class.scan(progress)
@@ -165,6 +159,8 @@ RSpec.describe YoutubeMigrationService do
         active_relation = double("active_relation")
         quiz_relation = double("quiz_relation")
         except_relation = double("except_relation")
+        last_assignment = double("last_assignment")
+        external_tool_tag = double("external_tool_tag")
 
         allow(course).to receive(:assignments).and_return(assignment_relation)
         allow(assignment_relation).to receive(:active).and_return(active_relation)
@@ -172,16 +168,22 @@ RSpec.describe YoutubeMigrationService do
           type_quiz_lti: quiz_relation,
           except: except_relation
         )
-        allow(quiz_relation).to receive(:any?).and_return(true)
+        allow(quiz_relation).to receive_messages(
+          any?: true,
+          last: last_assignment
+        )
+        allow(last_assignment).to receive(:external_tool_tag).and_return(external_tool_tag)
+        allow(external_tool_tag).to receive(:content_id).and_return("external_tool_123")
         allow(except_relation).to receive(:find_each).and_return([])
-        allow(course).to receive_messages(lti_context_id: "course_lti_context_123", id: 1)
+        allow(course).to receive_messages(global_id: "course_global_id_123", id: 1)
 
         expect(Canvas::LiveEvents).to receive(:scan_youtube_links) do |payload|
           expect(payload.scan_id).to eq(Progress.last.id)
           expect(payload.course_id).to eq(course.id)
-          expect(payload.external_context_id).to eq(course.lti_context_id)
+          expect(payload.external_tool_id).to eq("external_tool_123")
         end
 
+        progress.start!
         described_class.scan(progress)
       end
     end
@@ -199,6 +201,28 @@ RSpec.describe YoutubeMigrationService do
       progress.reload
       expect(progress.results).to be_present
       expect(progress.results[:error_report_id]).to eq(12_345)
+    end
+
+    it "transitions to waiting_for_external_tool when new_quizzes? returns true" do
+      allow(described_class).to receive(:new_quizzes?).with(course).and_return(true)
+      allow(described_class).to receive(:call_external_tool)
+      progress.start!
+      described_class.scan(progress)
+
+      progress.reload
+      expect(progress.workflow_state).to eq("waiting_for_external_tool")
+      expect(progress.results).to be_present
+      expect(progress.results[:completed_at]).to be_blank
+    end
+
+    it "completes immediately when new_quizzes? returns false" do
+      allow(described_class).to receive(:new_quizzes?).with(course).and_return(false)
+      progress.start!
+      described_class.scan(progress)
+
+      progress.reload
+      expect(progress.results).to be_present
+      expect(progress.results[:completed_at]).to be_present
     end
   end
 
@@ -480,10 +504,27 @@ RSpec.describe YoutubeMigrationService do
         expect { service.validate_resource_exists!("UnhandledType", 123) }
           .to raise_error(YoutubeMigrationService::ResourceNotFoundError, /Cannot validate existence/)
       end
+
+      shared_examples "passes for New Quizzes resource" do |type|
+        it "returns true for #{type}" do
+          expect { service.validate_resource_exists!(type, 123) }.not_to raise_error
+          expect(service.validate_resource_exists!(type, 123)).to be(true)
+        end
+      end
+
+      context "when resource_type is a New Quizzes resource" do
+        YoutubeMigrationService::NEW_QUIZZES_RESOURCES.each do |type|
+          include_examples "passes for New Quizzes resource", type
+        end
+      end
     end
   end
 
   describe "#perform_conversion" do
+    before do
+      studio_tool
+    end
+
     let(:scan_progress) do
       Progress.create!(
         tag: "youtube_embed_scan",
@@ -1089,6 +1130,58 @@ RSpec.describe YoutubeMigrationService do
     end
   end
 
+  describe "#resource_group_key_for" do
+    context "when resource_type is in NEW_QUIZZES_RESOURCES" do
+      before do
+        stub_const("NEW_QUIZZES_RESOURCES", ["QuizzesNext::Quiz"])
+      end
+
+      it "normalizes the type via prepare_new_quiz_resource_type and generates a key (embed hash form)" do
+        embed = { resource_type: "QuizzesNext::Quiz", id: 42, resource_group_key: nil }
+
+        expect(service)
+          .to receive(:prepare_new_quiz_resource_type)
+          .with("QuizzesNext::Quiz")
+          .and_return("QuizzesNext::Quiz")
+
+        expect(YoutubeMigrationService)
+          .to receive(:generate_resource_key)
+          .with("QuizzesNext::Quiz", 42)
+          .and_return("QuizzesNext::Quiz|42")
+
+        result = service.send(:resource_group_key_for, embed)
+        expect(result).to eq("QuizzesNext::Quiz|42")
+      end
+    end
+
+    context "when resource_type is NOT in NEW_QUIZZES_RESOURCES" do
+      before do
+        stub_const("NEW_QUIZZES_RESOURCES", [])
+      end
+
+      it "returns the existing resource_group_key as-is when present (including empty string)" do
+        embed = { resource_type: "Assignment", id: 7, resource_group_key: "" }
+
+        expect(YoutubeMigrationService).not_to receive(:generate_resource_key)
+
+        result = service.send(:resource_group_key_for, embed)
+        expect(result).to eq("")
+      end
+
+      it "falls back to generate_resource_key when resource_group_key is nil" do
+        embed = { resource_type: "Assignment", id: 7, resource_group_key: nil }
+
+        expect(YoutubeMigrationService)
+          .to receive(:generate_resource_key)
+          .with("Assignment", 7)
+          .and_return("Assignment|7")
+
+        result = service.send(:resource_group_key_for, embed)
+        expect(result).to eq("Assignment|7")
+      end
+    end
+  end
+
   describe "#mark_embed_as_converted" do
     let(:scan_progress) do
       embed_data = {
@@ -1200,18 +1293,917 @@ RSpec.describe YoutubeMigrationService do
     end
   end
 
-  describe "#find_studio_tool" do
-    let(:course_studio_tool) do
-      external_tool_model(
-        context: sub_account,
-        opts: {
-          domain: "arc.instructure.com",
-          url: "https://arc.instructure.com",
-          consumer_key: "course_key",
-          shared_secret: "course_secret",
-          name: "Course Studio"
+  describe "#convert_all_embeds" do
+    let(:scan_progress) do
+      Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [youtube_embed, { src: "https://www.youtube.com/embed/other123", id: wiki_page.id, resource_type: "WikiPage", field: :body, path: "//iframe[@src='https://www.youtube.com/embed/other123']", width: nil, height: nil }],
+              count: 2
+            }
+          },
+          total_count: 2
         }
       )
+    end
+
+    it "creates a bulk conversion progress and queues background job" do
+      service.convert_all_embeds(scan_progress.id)
+
+      bulk_progress = Progress.where(tag: "youtube_embed_bulk_convert", context: course).last
+      expect(bulk_progress).to be_present
+      expect(bulk_progress.context).to eq(course)
+      expect(bulk_progress.message).to eq("Converting 2 YouTube embeds")
+
+      results = bulk_progress.results.with_indifferent_access
+      expect(results["scan_progress_id"]).to eq(scan_progress.id)
+      expect(results["total_embeds"]).to eq(2)
+      expect(results["completed_embeds"]).to eq(0)
+      expect(results["failed_embeds"]).to eq(0)
+      expect(results["errors"]).to eq([])
+    end
+
+    it "handles scan progress with no embeds" do
+      scan_progress.update!(results: { total_count: 0, resources: {} })
+
+      result = service.convert_all_embeds(scan_progress.id)
+
+      expect(result).to be_nil
+      bulk_progress = Progress.where(tag: "youtube_embed_bulk_convert", context: course).last
+      expect(bulk_progress).to be_nil
+    end
+  end
+
+  describe "#convert_selected_embeds" do
+    let(:embed1) do
+      {
+        src: "https://www.youtube.com/embed/video1",
+        id: wiki_page.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/video1']",
+        width: nil,
+        height: nil
+      }
+    end
+
+    let(:embed2) do
+      {
+        src: "https://www.youtube.com/embed/video2",
+        id: wiki_page.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/video2']",
+        width: nil,
+        height: nil
+      }
+    end
+
+    it "creates a bulk conversion progress for selected embeds" do
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1, embed2],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      embeds_list = [embed1, embed2]
+      service.convert_selected_embeds(embeds_list, scan_progress.id)
+
+      bulk_progress = Progress.where(tag: "youtube_embed_bulk_convert", context: course).last
+      expect(bulk_progress).to be_present
+      expect(bulk_progress.context).to eq(course)
+      expect(bulk_progress.message).to eq("Converting 2 YouTube embeds")
+
+      results = bulk_progress.results.with_indifferent_access
+      expect(results["scan_progress_id"]).to eq(scan_progress.id)
+      expect(results["total_embeds"]).to eq(2)
+      expect(results["completed_embeds"]).to eq(0)
+      expect(results["failed_embeds"]).to eq(0)
+      expect(results["errors"]).to eq([])
+    end
+  end
+
+  describe "#perform_all_conversions" do
+    before do
+      studio_tool
+    end
+
+    let(:scan_progress) do
+      Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [youtube_embed],
+              count: 1
+            }
+          },
+          total_count: 1
+        }
+      )
+    end
+
+    let(:bulk_progress) do
+      Progress.create!(
+        tag: "youtube_embed_bulk_convert",
+        context: course,
+        results: {
+          scan_progress_id: scan_progress.id,
+          total_embeds: 1,
+          completed_embeds: 0,
+          failed_embeds: 0,
+          errors: []
+        }
+      )
+    end
+
+    before do
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: youtube_embed[:src],
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(
+          status: 200,
+          body: studio_api_response.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+    end
+
+    it "successfully converts all YouTube embeds to Studio embeds" do
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be true
+      expect(bulk_progress.results[:completed_embeds]).to eq(1)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:errors]).to be_empty
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      wiki_page.reload
+      expect(wiki_page.body).to include("lti-embed")
+      expect(wiki_page.body).to include("Test Video Title")
+      expect(wiki_page.body).not_to include("youtube.com")
+    end
+
+    it "handles Studio API errors gracefully and continues processing" do
+      failing_page = wiki_page_model(
+        course:,
+        title: "Failing Page",
+        body: '<iframe src="https://www.youtube.com/embed/failing" width="560" height="315"></iframe>'
+      )
+
+      scan_progress.update!(
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [youtube_embed],
+              count: 1
+            },
+            "WikiPage|#{failing_page.id}" => {
+              name: "Failing Page",
+              embeds: [
+                { src: "https://www.youtube.com/embed/failing", id: failing_page.id, resource_type: "WikiPage", field: :body, path: "//iframe[@src='https://www.youtube.com/embed/failing']", width: nil, height: nil }
+              ],
+              count: 1
+            }
+          },
+          total_count: 2
+        }
+      )
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 2))
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: "https://www.youtube.com/embed/failing",
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(status: 500, body: "Internal Server Error")
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 12_345)
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be false
+      expect(bulk_progress.results[:completed_embeds]).to eq(1)
+      expect(bulk_progress.results[:failed_embeds]).to eq(1)
+      expect(bulk_progress.results[:errors].length).to eq(1)
+      expect(bulk_progress.results[:errors].first[:embed_src]).to eq("https://www.youtube.com/embed/failing")
+      expect(bulk_progress.results[:errors].first[:error_report_id]).to eq(12_345)
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+    end
+
+    it "handles missing Studio tool" do
+      studio_tool.destroy
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:error]).to eq("Studio LTI tool not found for account")
+      expect(bulk_progress.results[:completed_at]).to be_present
+    end
+
+    it "processes multiple resources with multiple embeds each" do
+      assignment = assignment_model(course:, description: '<iframe src="https://www.youtube.com/embed/assignment123"></iframe>')
+      assignment_embed = {
+        src: "https://www.youtube.com/embed/assignment123",
+        id: assignment.id,
+        resource_type: "Assignment",
+        field: :description,
+        path: "//iframe[@src='https://www.youtube.com/embed/assignment123']",
+        width: nil,
+        height: nil
+      }
+
+      scan_progress.update!(
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [youtube_embed],
+              count: 1
+            },
+            "Assignment|#{assignment.id}" => {
+              name: "Test Assignment",
+              embeds: [assignment_embed],
+              count: 1
+            }
+          },
+          total_count: 2
+        }
+      )
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 2))
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(body: hash_including(url: "https://www.youtube.com/embed/assignment123"))
+        .to_return(
+          status: 200,
+          body: { "embed_url" => "https://arc.instructure.com/media/t_assignment", "title" => "Assignment Video", "id" => "media_assignment" }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be true
+      expect(bulk_progress.results[:completed_embeds]).to eq(2)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      wiki_page.reload
+      assignment.reload
+      expect(wiki_page.body).to include("lti-embed")
+      expect(assignment.description).to include("lti-embed")
+    end
+
+    it "handles general exceptions during bulk conversion" do
+      allow_any_instance_of(described_class).to receive(:find_studio_tool)
+        .and_raise(StandardError, "General error")
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 54_321)
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:error_report_id]).to eq(54_321)
+      expect(bulk_progress.results[:completed_at]).to be_present
+    end
+
+    it "calculates progress percentage correctly" do
+      page2 = wiki_page_model(course:, title: "Page 2", body: '<iframe src="https://www.youtube.com/embed/video2"></iframe>')
+      page3 = wiki_page_model(course:, title: "Page 3", body: '<iframe src="https://www.youtube.com/embed/video3"></iframe>')
+      page4 = wiki_page_model(course:, title: "Page 4", body: '<iframe src="https://www.youtube.com/embed/video4"></iframe>')
+
+      scan_progress.update!(
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [youtube_embed],
+              count: 1
+            },
+            "WikiPage|#{page2.id}" => {
+              name: "Page 2",
+              embeds: [{ src: "https://www.youtube.com/embed/video2", id: page2.id, resource_type: "WikiPage", field: :body, path: "//iframe[@src='https://www.youtube.com/embed/video2']", width: nil, height: nil }],
+              count: 1
+            },
+            "WikiPage|#{page3.id}" => {
+              name: "Page 3",
+              embeds: [{ src: "https://www.youtube.com/embed/video3", id: page3.id, resource_type: "WikiPage", field: :body, path: "//iframe[@src='https://www.youtube.com/embed/video3']", width: nil, height: nil }],
+              count: 1
+            },
+            "WikiPage|#{page4.id}" => {
+              name: "Page 4",
+              embeds: [{ src: "https://www.youtube.com/embed/video4", id: page4.id, resource_type: "WikiPage", field: :body, path: "//iframe[@src='https://www.youtube.com/embed/video4']", width: nil, height: nil }],
+              count: 1
+            }
+          },
+          total_count: 4
+        }
+      )
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 4))
+
+      %w[video2 video3 video4].each do |video_id|
+        stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+          .with(
+            body: hash_including(url: "https://www.youtube.com/embed/#{video_id}"),
+            headers: {
+              "Authorization" => /Bearer .+/,
+              "Content-Type" => "application/json"
+            }
+          )
+          .to_return(
+            status: 200,
+            body: { "embed_url" => "https://arc.instructure.com/media/t_#{video_id}", "title" => "Video #{video_id}", "id" => "media_#{video_id}" }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+      expect(bulk_progress.results[:completed_embeds]).to eq(4)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:success]).to be true
+    end
+
+    it "demonstrates successful, failed, successful conversion sequence with error reporting" do
+      page1 = wiki_page_model(course:, title: "Success Page 1", body: '<iframe src="https://www.youtube.com/embed/success1" width="560" height="315"></iframe>')
+      page2 = wiki_page_model(course:, title: "Failing Page", body: '<iframe src="https://www.youtube.com/embed/failing" width="560" height="315"></iframe>')
+      page3 = wiki_page_model(course:, title: "Success Page 2", body: '<iframe src="https://www.youtube.com/embed/success2" width="560" height="315"></iframe>')
+
+      success1_embed = {
+        src: "https://www.youtube.com/embed/success1",
+        id: page1.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/success1']",
+        width: nil,
+        height: nil
+      }
+
+      failing_embed = {
+        src: "https://www.youtube.com/embed/failing",
+        id: page2.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/failing']",
+        width: nil,
+        height: nil
+      }
+
+      success2_embed = {
+        src: "https://www.youtube.com/embed/success2",
+        id: page3.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/success2']",
+        width: nil,
+        height: nil
+      }
+
+      scan_progress.update!(
+        results: {
+          resources: {
+            "WikiPage|#{page1.id}" => {
+              name: "Success Page 1",
+              embeds: [success1_embed],
+              count: 1
+            },
+            "WikiPage|#{page2.id}" => {
+              name: "Failing Page",
+              embeds: [failing_embed],
+              count: 1
+            },
+            "WikiPage|#{page3.id}" => {
+              name: "Success Page 2",
+              embeds: [success2_embed],
+              count: 1
+            }
+          },
+          total_count: 3
+        }
+      )
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 3))
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: "https://www.youtube.com/embed/success1",
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(
+          status: 200,
+          body: { "embed_url" => "https://arc.instructure.com/media/t_success1", "title" => "Success Video 1", "id" => "media_success1" }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: "https://www.youtube.com/embed/failing",
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(status: 500, body: "Internal Server Error")
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: "https://www.youtube.com/embed/success2",
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(
+          status: 200,
+          body: { "embed_url" => "https://arc.instructure.com/media/t_success2", "title" => "Success Video 2", "id" => "media_success2" }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 99_999)
+
+      described_class.perform_all_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+
+      expect(bulk_progress.results[:completed_embeds]).to eq(2)
+      expect(bulk_progress.results[:failed_embeds]).to eq(1)
+      expect(bulk_progress.results[:success]).to be false
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      expect(bulk_progress.results[:errors].length).to eq(1)
+      error_report = bulk_progress.results[:errors].first
+      expect(error_report[:embed_src]).to eq("https://www.youtube.com/embed/failing")
+      expect(error_report[:resource_type]).to eq("WikiPage")
+      expect(error_report[:resource_id]).to eq(page2.id)
+      expect(error_report[:error_report_id]).to eq(99_999)
+      expect(error_report[:error_message]).to be_present
+
+      page1.reload
+      page3.reload
+      expect(page1.body).to include("lti-embed")
+      expect(page1.body).to include("Success Video 1")
+      expect(page1.body).not_to include("youtube.com")
+      expect(page3.body).to include("lti-embed")
+      expect(page3.body).to include("Success Video 2")
+      expect(page3.body).not_to include("youtube.com")
+
+      page2.reload
+      expect(page2.body).to include("youtube.com/embed/failing")
+      expect(page2.body).not_to include("lti-embed")
+    end
+  end
+
+  describe "#perform_selected_conversions" do
+    before do
+      studio_tool
+    end
+
+    let(:embed1) do
+      {
+        src: "https://www.youtube.com/embed/selected1",
+        id: wiki_page.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/selected1']",
+        width: nil,
+        height: nil
+      }
+    end
+
+    let(:embed2) do
+      {
+        src: "https://www.youtube.com/embed/selected2",
+        id: wiki_page.id,
+        resource_type: "WikiPage",
+        field: :body,
+        path: "//iframe[@src='https://www.youtube.com/embed/selected2']",
+        width: nil,
+        height: nil
+      }
+    end
+
+    let(:bulk_progress) do
+      Progress.create!(
+        tag: "youtube_embed_bulk_convert",
+        context: course,
+        results: {
+          scan_progress_id: nil,
+          total_embeds: 2,
+          completed_embeds: 0,
+          failed_embeds: 0,
+          errors: []
+        }
+      )
+    end
+
+    before do
+      wiki_page.update!(body: '<iframe src="https://www.youtube.com/embed/selected1"></iframe><iframe src="https://www.youtube.com/embed/selected2"></iframe>')
+
+      [embed1, embed2].each do |embed|
+        stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+          .with(
+            body: {
+              url: embed[:src],
+              course_id: course.id,
+              course_name: course.name
+            }.to_json,
+            headers: {
+              "Authorization" => /Bearer .+/,
+              "Content-Type" => "application/json"
+            }
+          )
+          .to_return(
+            status: 200,
+            body: { "embed_url" => "https://arc.instructure.com/media/t_#{embed[:src].split("/").last}", "title" => "Selected Video", "id" => "media_selected" }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+    end
+
+    it "successfully converts selected embeds without scan progress" do
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1, embed2],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be true
+      expect(bulk_progress.results[:completed_embeds]).to eq(2)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:errors]).to be_empty
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      wiki_page.reload
+      expect(wiki_page.body).to include("lti-embed")
+      expect(wiki_page.body).not_to include("youtube.com")
+    end
+
+    it "works with scan progress when provided" do
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1, embed2],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:completed_embeds]).to eq(2)
+
+      scan_progress.reload
+      expect(scan_progress.results[:resources]["WikiPage|#{wiki_page.id}"][:count]).to eq(2)
+      expect(scan_progress.results[:total_count]).to eq(0)
+    end
+
+    it "handles empty embeds list gracefully" do
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {},
+          total_count: 0
+        }
+      )
+
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 1))
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be true
+      expect(bulk_progress.results[:completed_embeds]).to eq(0)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:progress_percentage]).to eq(0.0)
+    end
+
+    it "handles Studio API errors gracefully and continues processing" do
+      failing_embed = embed1.merge(src: "https://www.youtube.com/embed/failing")
+      success_embed = embed2
+
+      wiki_page.update!(body: '<iframe src="https://www.youtube.com/embed/failing"></iframe><iframe src="https://www.youtube.com/embed/selected2"></iframe>')
+
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [failing_embed, success_embed],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(
+          body: {
+            url: "https://www.youtube.com/embed/failing",
+            course_id: course.id,
+            course_name: course.name
+          }.to_json,
+          headers: {
+            "Authorization" => /Bearer .+/,
+            "Content-Type" => "application/json"
+          }
+        )
+        .to_return(status: 500, body: "Internal Server Error")
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 77_777)
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be false
+      expect(bulk_progress.results[:completed_embeds]).to eq(1)
+      expect(bulk_progress.results[:failed_embeds]).to eq(1)
+      expect(bulk_progress.results[:errors].length).to eq(1)
+      expect(bulk_progress.results[:errors].first[:embed_src]).to eq("https://www.youtube.com/embed/failing")
+      expect(bulk_progress.results[:errors].first[:error_report_id]).to eq(77_777)
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      wiki_page.reload
+      expect(wiki_page.body).to include("lti-embed")
+      expect(wiki_page.body).to include("youtube.com/embed/failing")
+    end
+
+    it "handles missing Studio tool" do
+      studio_tool.destroy
+
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1],
+              count: 1
+            }
+          },
+          total_count: 1
+        }
+      )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:error]).to eq("Studio LTI tool not found for account")
+      expect(bulk_progress.results[:completed_at]).to be_present
+    end
+
+    it "handles general exceptions during selected conversions" do
+      allow_any_instance_of(described_class).to receive(:find_studio_tool)
+        .and_raise(StandardError, "General error")
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 88_888)
+
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1],
+              count: 1
+            }
+          },
+          total_count: 1
+        }
+      )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:error_report_id]).to eq(88_888)
+      expect(bulk_progress.results[:completed_at]).to be_present
+    end
+
+    it "processes multiple resource types successfully" do
+      assignment = assignment_model(course:, description: '<iframe src="https://www.youtube.com/embed/assignment123"></iframe>')
+      assignment_embed = {
+        src: "https://www.youtube.com/embed/assignment123",
+        id: assignment.id,
+        resource_type: "Assignment",
+        field: :description,
+        path: "//iframe[@src='https://www.youtube.com/embed/assignment123']",
+        width: nil,
+        height: nil
+      }
+
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1],
+              count: 1
+            },
+            "Assignment|#{assignment.id}" => {
+              name: "Test Assignment",
+              embeds: [assignment_embed],
+              count: 1
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(body: hash_including(url: "https://www.youtube.com/embed/assignment123"))
+        .to_return(
+          status: 200,
+          body: { "embed_url" => "https://arc.instructure.com/media/t_assignment", "title" => "Assignment Video", "id" => "media_assignment" }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:success]).to be true
+      expect(bulk_progress.results[:completed_embeds]).to eq(2)
+      expect(bulk_progress.results[:failed_embeds]).to eq(0)
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+
+      wiki_page.reload
+      assignment.reload
+      expect(wiki_page.body).to include("lti-embed")
+      expect(assignment.description).to include("lti-embed")
+    end
+
+    it "calculates progress percentage correctly with mixed results" do
+      failing_embed = embed1.merge(src: "https://www.youtube.com/embed/failing")
+      success_embed = embed2
+
+      wiki_page.update!(body: '<iframe src="https://www.youtube.com/embed/failing"></iframe><iframe src="https://www.youtube.com/embed/selected2"></iframe>')
+
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [failing_embed, success_embed],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      stub_request(:post, "https://arc.instructure.com/api/internal/youtube_embed")
+        .with(body: hash_including(url: "https://www.youtube.com/embed/failing"))
+        .to_return(status: 500, body: "Internal Server Error")
+
+      expect(Canvas::Errors).to receive(:capture_exception)
+        .with(:youtube_embed_bulk_convert, anything)
+        .and_return(error_report: 66_666)
+
+      bulk_progress.update!(results: bulk_progress.results.merge(total_embeds: 2))
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      bulk_progress.reload
+      expect(bulk_progress.results[:progress_percentage]).to eq(100.0)
+      expect(bulk_progress.results[:completed_embeds]).to eq(1)
+      expect(bulk_progress.results[:failed_embeds]).to eq(1)
+      expect(bulk_progress.results[:success]).to be false
+    end
+
+    it "updates scan progress when provided for selected conversions" do
+      scan_progress = Progress.create!(
+        tag: "youtube_embed_scan",
+        context: course,
+        workflow_state: "completed",
+        results: {
+          resources: {
+            "WikiPage|#{wiki_page.id}" => {
+              name: "Test Page",
+              embeds: [embed1.merge(converted: nil), embed2.merge(converted: nil)],
+              count: 2
+            }
+          },
+          total_count: 2
+        }
+      )
+
+      described_class.perform_selected_conversions(bulk_progress, course.id, scan_progress.id)
+
+      scan_progress.reload
+      resource = scan_progress.results[:resources]["WikiPage|#{wiki_page.id}"]
+      converted_embed1 = resource[:embeds].find { |e| e[:src] == embed1[:src] }
+      converted_embed2 = resource[:embeds].find { |e| e[:src] == embed2[:src] }
+
+      expect(converted_embed1[:converted]).to be true
+      expect(converted_embed1[:converted_at]).not_to be_nil
+      expect(converted_embed2[:converted]).to be true
+      expect(converted_embed2[:converted_at]).not_to be_nil
+      expect(resource[:converted_count]).to eq(2)
+      expect(scan_progress.results[:total_converted]).to eq(2)
+      expect(scan_progress.results[:total_count]).to eq(0)
+    end
+  end
+
+  describe "#find_studio_tool" do
+    before do
+      studio_tool
     end
 
     context "when Studio tool exists in root account" do
@@ -1235,50 +2227,47 @@ RSpec.describe YoutubeMigrationService do
       end
     end
 
-    context "when Studio tool exists in course account" do
-      let(:sub_account) { account_model(parent_account: root_account) }
-      let(:sub_course) { course_model(account: sub_account) }
-      let(:sub_service) { described_class.new(sub_course) }
+    context "when Studio tool exist on one of the parent account" do
+      it "finds tool from higher level in hierarchy" do
+        mid_account = account_model(parent_account: root_account)
+        leaf_account = account_model(parent_account: mid_account)
+        leaf_course = course_model(account: leaf_account)
 
-      before do
-        # Remove root account tool to test course account tool
         studio_tool.destroy
-        course_studio_tool
-      end
 
-      it "finds Studio tool in course account" do
-        result = sub_service.find_studio_tool
-        expect(result).to eq(course_studio_tool)
-      end
+        mid_account_tool = external_tool_model(
+          context: mid_account,
+          opts: {
+            domain: "arc.instructure.com",
+            url: "https://arc.instructure.com",
+            consumer_key: "mid_account_tool_key",
+            shared_secret: "mid_account_tool_secret",
+            name: "mid_account_tool studio"
+          }
+        )
 
-      it "does not return disabled course account tools" do
-        course_studio_tool.update(workflow_state: "disabled")
-
-        result = sub_service.find_studio_tool
-        expect(result).to be_nil
+        result = described_class.new(leaf_course).find_studio_tool
+        expect(result).to eq(mid_account_tool)
       end
     end
 
-    context "when Studio tools exist in both root account and course account" do
-      let(:sub_account) { account_model(parent_account: root_account) }
-      let(:sub_course) { course_model(account: sub_account) }
-      let(:sub_service) { described_class.new(sub_course) }
+    context "when Studio tool exist on root account" do
+      it "finds tool from higher level in hierarchy" do
+        studio_tool.destroy
 
-      before do
-        course_studio_tool
-      end
+        root_account_tool = external_tool_model(
+          context: root_account,
+          opts: {
+            domain: "arc.instructure.com",
+            url: "https://arc.instructure.com",
+            consumer_key: "root_account_tool_key",
+            shared_secret: "root_account_tool_secret",
+            name: "root_account_tool studio"
+          }
+        )
 
-      it "prioritizes root account tool over course account tool" do
-        result = sub_service.find_studio_tool
-        expect(result).to eq(studio_tool)
-        expect(result).not_to eq(course_studio_tool)
-      end
-
-      it "falls back to course account tool if root account tool is disabled" do
-        studio_tool.update(workflow_state: "disabled")
-
-        result = sub_service.find_studio_tool
-        expect(result).to eq(course_studio_tool)
+        result = described_class.new(course).find_studio_tool
+        expect(result).to eq(root_account_tool)
       end
     end
 
@@ -1337,6 +2326,162 @@ RSpec.describe YoutubeMigrationService do
       end
     end
 
+    describe "#process_new_quizzes_scan_update" do
+      let(:scan_progress) do
+        Progress.create!(
+          tag: "youtube_embed_scan",
+          context: course,
+          workflow_state: "waiting_for_external_tool",
+          results: {
+            resources: {
+              "WikiPage|123" => {
+                name: "Test Page",
+                id: 123,
+                type: "WikiPage",
+                content_url: "/courses/#{course.id}/pages/test-page",
+                count: 1,
+                embeds: [
+                  {
+                    path: "//iframe[@src='https://www.youtube.com/embed/abc123']",
+                    id: 123,
+                    resource_type: "WikiPage",
+                    field: "body",
+                    src: "https://www.youtube.com/embed/abc123"
+                  }
+                ]
+              }
+            },
+            total_count: 1,
+            completed_at: 2.hours.ago.utc
+          }
+        )
+      end
+
+      let(:new_quizzes_scan_results) do
+        {
+          resources: [
+            {
+              name: "New Quiz",
+              id: 456,
+              type: "Quiz",
+              content_url: "/courses/#{course.id}/quizzes/456",
+              count: 2,
+              embeds: [
+                {
+                  path: "//iframe[@src='https://www.youtube.com/embed/xyz789']",
+                  id: 456,
+                  resource_type: "Quiz",
+                  field: "instructions",
+                  src: "https://www.youtube.com/embed/xyz789"
+                }
+              ]
+            }
+          ],
+          total_count: 2
+        }
+      end
+
+      it "merges new quizzes results when status is completed" do
+        service.process_new_quizzes_scan_update(
+          scan_progress.id,
+          new_quizzes_scan_status: "completed",
+          new_quizzes_scan_results:
+        )
+
+        scan_progress.reload
+        expect(scan_progress.workflow_state).to eq("completed")
+        expect(scan_progress.results[:new_quizzes_scan_status]).to eq("completed")
+        expect(scan_progress.results[:total_count]).to eq(3)
+        expect(scan_progress.results[:resources].keys).to include("WikiPage|123", "Quiz|456")
+        expect(scan_progress.results[:resources]["Quiz|456"][:name]).to eq("New Quiz")
+        expect(scan_progress.results[:completed_at]).to be_present
+      end
+
+      it "handles failed status without merging results but still completes" do
+        original_resources = scan_progress.results[:resources].dup
+
+        service.process_new_quizzes_scan_update(
+          scan_progress.id,
+          new_quizzes_scan_status: "failed",
+          new_quizzes_scan_results:
+        )
+
+        scan_progress.reload
+        expect(scan_progress.workflow_state).to eq("completed")
+        expect(scan_progress.results[:new_quizzes_scan_status]).to eq("failed")
+        expect(scan_progress.results[:total_count]).to eq(1)
+        expect(scan_progress.results[:resources]).to eq(original_resources)
+        expect(scan_progress.results[:completed_at]).to be_present
+      end
+
+      it "handles processing errors gracefully and completes with failed status" do
+        allow(YoutubeMigrationService).to receive(:generate_resource_key).and_raise(StandardError, "Test error")
+        expect(Canvas::Errors).to receive(:capture).with(
+          :youtube_migration_new_quizzes_scan_error,
+          {
+            course_id: course.id,
+            scan_id: scan_progress.id,
+            error: "Test error",
+            message: "Error processing new quizzes scan update"
+          }
+        )
+
+        service.process_new_quizzes_scan_update(
+          scan_progress.id,
+          new_quizzes_scan_status: "completed",
+          new_quizzes_scan_results:
+        )
+
+        scan_progress.reload
+        expect(scan_progress.workflow_state).to eq("completed")
+        expect(scan_progress.results[:new_quizzes_scan_status]).to eq("failed")
+        expect(scan_progress.results[:completed_at]).to be_present
+      end
+
+      it "handles nil new_quizzes_scan_results with default empty hash" do
+        service.process_new_quizzes_scan_update(
+          scan_progress.id,
+          new_quizzes_scan_status: "completed"
+        )
+
+        scan_progress.reload
+        expect(scan_progress.results[:new_quizzes_scan_status]).to eq("completed")
+        expect(scan_progress.results[:total_count]).to eq(1)
+      end
+
+      it "raises error when scan is not found" do
+        expect do
+          service.process_new_quizzes_scan_update(
+            99_999,
+            new_quizzes_scan_status: "completed",
+            new_quizzes_scan_results:
+          )
+        end.to raise_error(ActiveRecord::RecordNotFound)
+      end
+
+      it "handles empty existing results gracefully" do
+        empty_progress = Progress.create!(
+          tag: "youtube_embed_scan",
+          context: course,
+          workflow_state: "waiting_for_external_tool"
+        )
+
+        service.process_new_quizzes_scan_update(
+          empty_progress.id,
+          new_quizzes_scan_status: "completed",
+          new_quizzes_scan_results:
+        )
+
+        empty_progress.reload
+        expect(empty_progress.workflow_state).to eq("completed")
+        expect(empty_progress.results[:total_count]).to eq(2)
+        expect(empty_progress.results[:resources]).to have_key("Quiz|456")
+        expect(empty_progress.results[:resources]["Quiz|456"][:name]).to eq("New Quiz")
+        expect(empty_progress.results[:resources]["Quiz|456"][:count]).to eq(2)
+        expect(empty_progress.results[:new_quizzes_scan_status]).to eq("completed")
+      end
+    end
+
     describe "JWT token generation with user_uuid" do
       let(:user) { user_factory(active_all: true) }
       let(:user_uuid) { user.uuid }
@@ -1358,6 +2503,106 @@ RSpec.describe YoutubeMigrationService do
         end
 
         service.convert_youtube_to_studio(youtube_embed, studio_tool, user_uuid:)
+      end
+    end
+
+    describe "#reset_scan_status" do
+      subject(:call) { service.reset_scan_status }
+
+      let(:scan_tag) { "youtube_embed_scan" }
+
+      context "when a scan is waiting_for_external_tool" do
+        let!(:stuck_progress) do
+          Progress.create!(
+            tag: scan_tag,
+            context: course,
+            workflow_state: "waiting_for_external_tool",
+            results: { total_count: 3 }
+          )
+        end
+
+        it "marks scan as failed, completes it, and sets completed_at" do
+          call
+          stuck_progress.reload
+
+          expect(stuck_progress.workflow_state).to eq("completed")
+          expect(stuck_progress.results).to be_present
+          expect(stuck_progress.results[:new_quizzes_scan_status]).to eq("failed")
+          expect(stuck_progress.results[:completed_at]).to be_within(10.seconds).of(Time.now.utc)
+        end
+
+        it "preserves existing results keys" do
+          call
+          expect(stuck_progress.reload.results[:total_count]).to eq(3)
+        end
+      end
+
+      context "when the scan's results are initially nil" do
+        let!(:stuck_progress) do
+          Progress.create!(
+            tag: scan_tag,
+            context: course,
+            workflow_state: "waiting_for_external_tool",
+            results: nil
+          )
+        end
+
+        it "initializes results and sets failure + completed_at" do
+          call
+          stuck_progress.reload
+
+          expect(stuck_progress.workflow_state).to eq("completed")
+          expect(stuck_progress.results[:new_quizzes_scan_status]).to eq("failed")
+          expect(stuck_progress.results[:completed_at]).to be_within(10.seconds).of(Time.now.utc)
+        end
+      end
+
+      context "when there is no waiting scan" do
+        it "does nothing and does not raise" do
+          running = Progress.create!(
+            tag: scan_tag,
+            context: course,
+            workflow_state: "running",
+            results: { total_count: 1 }
+          )
+
+          expect { call }.not_to change { Progress.count }
+
+          running.reload
+          expect(running.workflow_state).to eq("running")
+          expect(running.results[:new_quizzes_scan_status]).to be_nil
+          expect(running.results[:completed_at]).to be_nil
+        end
+      end
+
+      context "when multiple scans exist" do
+        let!(:waiting) do
+          Progress.create!(
+            tag: scan_tag,
+            context: course,
+            workflow_state: "waiting_for_external_tool",
+            results: { foo: "bar" }
+          )
+        end
+
+        let!(:completed) do
+          Progress.create!(
+            tag: scan_tag,
+            context: course,
+            workflow_state: "completed",
+            results: { baz: 1 }
+          )
+        end
+
+        it "only completes the waiting scan and leaves others unchanged" do
+          call
+
+          expect(waiting.reload.workflow_state).to eq("completed")
+          expect(waiting.results[:new_quizzes_scan_status]).to eq("failed")
+
+          expect(completed.reload.workflow_state).to eq("completed")
+          expect(completed.results).to eq(baz: 1)
+        end
       end
     end
   end

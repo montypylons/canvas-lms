@@ -224,8 +224,8 @@ class SubmissionLifecycleManager
 
       effective_due_dates.to_hash.each do |assignment_id, student_due_dates|
         existing_anonymous_ids = existing_anonymous_ids_by_assignment_id[assignment_id]
-
-        create_moderation_selections_for_assignment(assignments_by_id[assignment_id], student_due_dates.keys, @user_ids)
+        assignment = assignments_by_id[assignment_id]
+        create_moderation_selections_for_assignment(assignment, student_due_dates.keys, @user_ids)
 
         quiz_lti = quiz_lti_assignments.include?(assignment_id)
 
@@ -241,8 +241,6 @@ class SubmissionLifecycleManager
           existing_anonymous_ids << anonymous_id
           sql_ready_anonymous_id = Submission.connection.quote(anonymous_id)
 
-          assignment = AbstractAssignment.find_by(id: assignment_id)
-
           if @create_sub_assignment_submissions && assignment.checkpoints_parent? && assignment.sub_assignment_submissions.find_by(user_id: student_id).nil?
             assignment.sub_assignments.each do |sub_assignment|
               sub_assignment_key = [sub_assignment.id, student_id]
@@ -257,6 +255,7 @@ class SubmissionLifecycleManager
         end
       end
 
+      # Keep in mind that the Submission updates below do NOT trigger any callbacks or validations!!!
       assignments_to_delete_all_submissions_for = []
       # Delete submissions for students who don't have visibility to this assignment anymore
       @assignment_ids.each do |assignment_id|

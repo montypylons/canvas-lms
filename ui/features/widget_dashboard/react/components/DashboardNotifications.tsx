@@ -25,6 +25,9 @@ import {useScope as createI18nScope} from '@canvas/i18n'
 import {executeQuery} from '@canvas/graphql'
 import NotificationAlert, {AccountNotificationData} from './NotificationAlert'
 import EnrollmentInvitation, {EnrollmentInvitationData} from './EnrollmentInvitation'
+import {DASHBOARD_NOTIFICATIONS_KEY} from '../constants'
+import {widgetDashboardPersister} from '../utils/persister'
+import {useBroadcastQuery} from '@canvas/query/broadcast'
 
 interface DashboardNotificationsResponse {
   accountNotifications?: AccountNotificationData[]
@@ -85,10 +88,18 @@ const DashboardNotifications: React.FC = () => {
     isLoading: loading,
     error,
   } = useQuery<DashboardNotificationsResponse>({
-    queryKey: ['dashboardNotifications'],
+    queryKey: [DASHBOARD_NOTIFICATIONS_KEY],
     queryFn: () => executeQuery(DASHBOARD_NOTIFICATIONS_QUERY, {}),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    persister: widgetDashboardPersister,
+    refetchOnMount: false,
+  })
+
+  // Broadcast notification updates across tabs
+  useBroadcastQuery({
+    queryKey: [DASHBOARD_NOTIFICATIONS_KEY],
+    broadcastChannel: 'widget-dashboard',
   })
 
   const dismissMutation = useMutation<DismissNotificationResponse, Error, string>({

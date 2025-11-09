@@ -211,7 +211,7 @@ RSpec.describe Lti::Pns::LtiAssetProcessorContributionNoticeBuilder do
 
       expect(LtiAdvantage::Messages::JwtMessage).to have_received(:create_jws).with(
         hash_including(
-          "https://purl.imsglobal.org/spec/lti/claim/activity" => { id: assignment.lti_context_id },
+          "https://purl.imsglobal.org/spec/lti/claim/activity" => { id: assignment.lti_context_id, title: assignment.title },
           "https://purl.imsglobal.org/spec/lti/claim/assetservice" =>
           {
             assets: [],
@@ -242,7 +242,7 @@ RSpec.describe Lti::Pns::LtiAssetProcessorContributionNoticeBuilder do
         hash_including(
           "aud" => developer_key.global_id.to_s,
           "azp" => developer_key.global_id.to_s,
-          "https://purl.imsglobal.org/spec/lti/claim/activity" => { id: assignment.lti_context_id },
+          "https://purl.imsglobal.org/spec/lti/claim/activity" => { id: assignment.lti_context_id, title: assignment.title },
           "https://purl.imsglobal.org/spec/lti/claim/assetservice" =>
           {
             assets: [{
@@ -299,6 +299,25 @@ RSpec.describe Lti::Pns::LtiAssetProcessorContributionNoticeBuilder do
         ),
         anything
       )
+    end
+  end
+
+  describe "#info_log" do
+    let(:notice_builder) { described_class.new(param_hash) }
+
+    it "returns relevant log information" do
+      log_info = notice_builder.info_log(tool)
+      expect(log_info).to include(
+        notice_type: "LtiAssetProcessorContributionNotice",
+        tool_id: tool.id,
+        user_id: @teacher.id,
+        assignment_id: assignment.id,
+        discussion_entry_id: reply.id,
+        contribution_status: "Submitted",
+        asset_count: 1,
+        asset_uuids: ["333"]
+      )
+      expect(log_info).to have_key(:notice_id)
     end
   end
 end

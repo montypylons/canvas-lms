@@ -172,10 +172,16 @@
 # To explicitly request by ID, you can use the form `/api/v1/courses/:course_id/pages/page_id:7`.
 #
 class WikiPagesApiController < ApplicationController
+  AI_ALT_TEXT_MAX_LENGTH = 120
+  AI_ALT_TEXT_FEATURE_FLAG_SLUG = "alttext"
+  AI_ALT_TEXT_TYPE = "Base64"
+  AI_ALT_TEXT_MAX_IMAGE_SIZE = 3.megabytes
+  AI_ALT_TEXT_SUPPORTED_IMAGE_TYPES = Attachment.valid_content_types_hash.select { |_, type| type == "image" }.keys.freeze
+
   before_action :require_context
-  before_action :get_wiki_page, except: %i[create index check_title_availability]
-  before_action :require_wiki_page, except: %i[create update update_front_page index check_title_availability]
-  before_action :was_front_page, except: [:index, :check_title_availability]
+  before_action :get_wiki_page, except: %i[create index check_title_availability ai_generate_alt_text]
+  before_action :require_wiki_page, except: %i[create update update_front_page index check_title_availability ai_generate_alt_text]
+  before_action :was_front_page, except: %i[index check_title_availability ai_generate_alt_text]
   before_action only: %i[show update destroy revisions show_revision revert] do
     check_differentiated_assignments(@page)
   end
@@ -288,8 +294,34 @@ class WikiPagesApiController < ApplicationController
       includes = Array(params[:include])
       scope_columns = WikiPage.column_names
       scope_columns -= ["body"] unless includes.include?("body")
-      scope_columns += ["CASE WHEN body IS NULL THEN true ELSE false END AS is_body_null"] if @context.account.feature_enabled?(:block_content_editor)
-      scope = @context.wiki_pages.select(scope_columns).preload(:user)
+      scope_columns += ["CASE WHEN body IS NULL THEN true ELSE false END AS is_body_null"] if @context.try(:block_content_editor_enabled?)
+      scope = @context.wiki_pages.select(scope_columns)
+      scope = if Account.site_admin.feature_enabled?(:n_plus_one_index_wiki_page_api)
+                scope.preload(
+                  :user,
+                  :assignment_overrides,
+                  :active_assignment_overrides,
+                  :assignment_override_students,
+                  :current_lookup,
+                  :wiki,
+                  :block_editor,
+                  :estimated_duration,
+                  context_module_tags: { context_module: :context },
+                  assignment: [
+                    :assignment_overrides,
+                    :assignment_override_students,
+                    :quiz,
+                    :discussion_topic,
+                    :context_module_tags,
+                    :external_tool_tag,
+                    :rubric_association,
+                    :post_policy,
+                    { context: %i[active_course_sections grading_period_groups enrollment_term] }
+                  ]
+                ).strict_loading(mode: :n_plus_one_only)
+              else
+                scope.preload(:user)
+              end
       scope = if params.key?(:published)
                 value_to_boolean(params[:published]) ? scope.published : scope.unpublished
               else
@@ -377,7 +409,7 @@ class WikiPagesApiController < ApplicationController
     @page = @wiki.build_wiki_page(@current_user, initial_params)
     if authorized_action(@page, @current_user, :create)
       allowed_fields = Set[:title, :body]
-      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.account.feature_enabled?(:block_content_editor)
+      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
       allowed_fields << :estimated_duration_attributes if @context.is_a?(Course) && @context.horizon_course?
       update_params = get_update_params(allowed_fields)
       assign_todo_date
@@ -459,7 +491,7 @@ class WikiPagesApiController < ApplicationController
     if @page.new_record?
       perform_update = true if authorized_action(@page, @current_user, [:create])
       allowed_fields = Set[:title, :body]
-      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.account.feature_enabled?(:block_content_editor)
+      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
     elsif authorized_action(@page, @current_user, [:update, :update_content])
       perform_update = true
       allowed_fields = Set[]
@@ -627,7 +659,45 @@ class WikiPagesApiController < ApplicationController
     end
   end
 
+  def ai_generate_alt_text
+    return unless authorized_action(@context, @current_user, RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render json: { error: "The feature is not available" }, status: :forbidden unless ai_alt_text_feature_enabled?
+    return render json: { error: "AI client is not available" }, status: :forbidden unless CedarClient.enabled?
+    return render json: {}, status: :bad_request unless ai_alt_text_params_valid?
+
+    attachment = Attachment.find(params.require(:attachment_id))
+    return unless authorized_action(attachment, @current_user, :read)
+    return render json: { error: "Image too large" }, status: :bad_request if attachment.size > AI_ALT_TEXT_MAX_IMAGE_SIZE
+
+    unless AI_ALT_TEXT_SUPPORTED_IMAGE_TYPES.include?(attachment.content_type)
+      return render json: { error: "Unsupported image type" }, status: :bad_request
+    end
+
+    base64_source = Base64.strict_encode64(attachment.open.read)
+
+    context_hash = {
+      context: @context,
+      user: @current_user,
+      root_account: @domain_root_account
+    }
+
+    generation_result = CedarClient.generate_alt_text(
+      image: { base64_source:, type: AI_ALT_TEXT_TYPE },
+      feature_slug: AI_ALT_TEXT_FEATURE_FLAG_SLUG,
+      root_account_uuid: @context.root_account.uuid,
+      current_user: @current_user,
+      max_length: AI_ALT_TEXT_MAX_LENGTH,
+      target_language: infer_locale(context_hash)
+    )
+
+    render json: { image: { altText: generation_result.image["altText"] } }
+  end
+
   protected
+
+  def ai_alt_text_feature_enabled?
+    Account.site_admin.feature_enabled?(:block_content_editor_ai_alt_text) && @context.try(:block_content_editor_enabled?)
+  end
 
   def is_front_page_action?
     !!action_name.match(/_front_page$/)
@@ -675,7 +745,7 @@ class WikiPagesApiController < ApplicationController
   def get_update_params(allowed_fields = Set[])
     # normalize parameters
     wiki_page_params = %w[title body notify_of_update published front_page editing_roles publish_at]
-    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: strong_anything }]] if @context.account.feature_enabled?(:block_editor) || @context.account.feature_enabled?(:block_content_editor)
+    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: strong_anything }]] if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
     wiki_page_params += [estimated_duration_attributes: %i[id minutes _destroy]] if @context.is_a?(Course) && @context.horizon_course?
     page_params = params[:wiki_page] ? params[:wiki_page].permit(*wiki_page_params) : {}
 
@@ -723,7 +793,7 @@ class WikiPagesApiController < ApplicationController
 
       unless @page.grants_right?(@current_user, session, :update)
         allowed_fields << :body
-        allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.account.feature_enabled?(:block_content_editor)
+        allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
         allowed_fields << :estimated_duration_attributes if @context.is_a?(Course) && @context.horizon_course?
         rejected_fields << :title if page_params.include?(:title) && page_params[:title] != @page.title
 
@@ -809,6 +879,12 @@ class WikiPagesApiController < ApplicationController
   end
 
   private
+
+  def ai_alt_text_params_valid?
+    return false if params[:attachment_id].blank?
+
+    true
+  end
 
   def rescue_unparsable_content(error)
     @page.errors.add(:body, error.message) if @page.present?

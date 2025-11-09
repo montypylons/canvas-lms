@@ -92,6 +92,18 @@ describe Accessibility::Issue::HtmlFixer do
           }
         )
       end
+
+      it "does not trigger accessibility scan when saving the fix" do
+        wiki_page
+
+        account = course.root_account
+        account.enable_feature!(:a11y_checker)
+        course.enable_feature!(:a11y_checker_eap)
+
+        expect(Accessibility::ResourceScannerService).not_to receive(:call)
+
+        html_fixer.apply_fix!
+      end
     end
   end
 
@@ -226,6 +238,82 @@ describe Accessibility::Issue::HtmlFixer do
             },
           }
         )
+      end
+    end
+
+    context "with backwards compatibility for fix! return value" do
+      let(:wiki_page) do
+        wiki_page_model(
+          course:,
+          title: "Test Page",
+          body: "<div><span id='test-element'>Original Content</span></div>"
+        )
+      end
+
+      context "when rule returns array [element, preview_html]" do
+        let(:mock_rule) { double("MockRule") }
+        let(:mock_rule_registry) { { "test-array-rule" => mock_rule } }
+        let(:html_fixer) do
+          described_class.new(
+            "test-array-rule",
+            wiki_page,
+            "./div/span[@id='test-element']",
+            "fix_value"
+          )
+        end
+
+        before do
+          allow(Accessibility::Rule).to receive(:registry).and_return(mock_rule_registry)
+          allow(mock_rule).to receive(:test).and_return(nil)
+          allow(mock_rule).to receive(:fix!) do |elem, _value|
+            elem.content = "Fixed Content"
+            [elem, "<span id='test-element'>Fixed Content</span><p>Extra context</p>"]
+          end
+        end
+
+        it "uses the preview_html from the array for element_only mode" do
+          result = html_fixer.preview_fix(element_only: true)
+
+          expect(result[:status]).to eq(:ok)
+          expect(result[:json][:content]).to eq("<span id='test-element'>Fixed Content</span><p>Extra context</p>")
+        end
+
+        it "uses full document when element_only is false" do
+          result = html_fixer.preview_fix(element_only: false)
+
+          expect(result[:status]).to eq(:ok)
+          expect(result[:json][:content]).to include("Fixed Content")
+        end
+      end
+
+      context "when rule returns just the element (backwards compatible)" do
+        let(:wiki_page) { wiki_page_model(course:, title: "Test Page", body: "<div><span id='old-element'>Old Text</span></div>") }
+        let(:mock_rule) { double("MockRule") }
+        let(:mock_rule_registry) { { "test-element-rule" => mock_rule } }
+        let(:html_fixer) do
+          described_class.new(
+            "test-element-rule",
+            wiki_page,
+            "./div/span[@id='old-element']",
+            "fix_value"
+          )
+        end
+
+        before do
+          allow(Accessibility::Rule).to receive(:registry).and_return(mock_rule_registry)
+          allow(mock_rule).to receive(:test).and_return(nil)
+          allow(mock_rule).to receive(:fix!) do |elem, _value|
+            elem.content = "New Text"
+            elem
+          end
+        end
+
+        it "still works with rules that return just the element" do
+          result = html_fixer.preview_fix(element_only: true)
+
+          expect(result[:status]).to eq(:ok)
+          expect(result[:json][:content]).to eq("<span id=\"old-element\">New Text</span>")
+        end
       end
     end
   end

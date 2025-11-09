@@ -27,12 +27,12 @@ import {
   WidgetDashboardProvider,
   type SharedCourseData,
 } from '../../../../hooks/useWidgetDashboardContext'
+import {clearWidgetDashboardCache} from '../../../../__tests__/testHelpers'
 
 const mockWidget: Widget = {
   id: 'test-announcements-widget',
   type: 'announcements',
-  position: {col: 1, row: 1},
-  size: {width: 1, height: 1},
+  position: {col: 1, row: 1, relative: 1},
   title: 'Announcements',
 }
 
@@ -42,7 +42,20 @@ const mockSharedCourseData: SharedCourseData[] = [
     courseCode: 'CS 101',
     courseName: 'Test Course 1',
     currentGrade: 95,
-    gradingScheme: 'letter',
+    gradingScheme: [
+      ['A', 0.94],
+      ['A-', 0.9],
+      ['B+', 0.87],
+      ['B', 0.84],
+      ['B-', 0.8],
+      ['C+', 0.77],
+      ['C', 0.74],
+      ['C-', 0.7],
+      ['D+', 0.67],
+      ['D', 0.64],
+      ['D-', 0.61],
+      ['F', 0],
+    ] as Array<[string, number]>,
     lastUpdated: '2025-01-01T00:00:00Z',
   },
   {
@@ -104,6 +117,7 @@ const mockAllAnnouncementsResponse = {
           hasPreviousPage: false,
           startCursor: null,
           endCursor: null,
+          totalCount: null,
         },
       },
     },
@@ -140,6 +154,25 @@ const mockUnreadAnnouncementsResponse = {
           hasPreviousPage: false,
           startCursor: null,
           endCursor: null,
+          totalCount: null,
+        },
+      },
+    },
+  },
+}
+
+const emptyAnnouncementsResponse = {
+  data: {
+    legacyNode: {
+      _id: '123',
+      discussionParticipantsConnection: {
+        nodes: [],
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: null,
+          endCursor: null,
+          totalCount: null,
         },
       },
     },
@@ -176,6 +209,7 @@ const mockReadAnnouncementsResponse = {
           hasPreviousPage: false,
           startCursor: null,
           endCursor: null,
+          totalCount: null,
         },
       },
     },
@@ -189,6 +223,8 @@ const getMockResponseForReadState = (readState?: string) => {
       return mockReadAnnouncementsResponse
     case 'unread':
       return mockUnreadAnnouncementsResponse
+    case 'empty':
+      return emptyAnnouncementsResponse
     case 'all':
     default:
       return mockAllAnnouncementsResponse
@@ -287,6 +323,7 @@ const mockCourseGradesResponse = {
           hasPreviousPage: false,
           startCursor: null,
           endCursor: null,
+          totalCount: null,
         },
       },
     },
@@ -307,6 +344,9 @@ describe('AnnouncementsWidget', () => {
       onUnhandledRequest: 'bypass',
     }),
   )
+  beforeEach(() => {
+    clearWidgetDashboardCache()
+  })
   afterEach(() => {
     server.resetHandlers()
   })
@@ -363,6 +403,7 @@ describe('AnnouncementsWidget', () => {
                   hasPreviousPage: false,
                   startCursor: null,
                   endCursor: null,
+                  totalCount: null,
                 },
               },
             },
@@ -437,7 +478,7 @@ describe('AnnouncementsWidget', () => {
     await waitForLoadingToComplete()
 
     expect(capturedVariables).not.toBeNull()
-    expect(capturedVariables.first).toBe(4) // Uses the direct limit value
+    expect(capturedVariables.first).toBe(3)
     expect(capturedVariables.userId).toBe('123') // From ENV.current_user_id
 
     cleanup()
@@ -471,7 +512,6 @@ describe('AnnouncementsWidget', () => {
     const retryButton = screen.getByText('Retry')
     fireEvent.click(retryButton)
 
-    // Wait for successful data to load - with default "unread" filter, should show Test Announcement 2
     await waitFor(() => {
       expect(screen.getByText('Test Announcement 2')).toBeInTheDocument()
     })
@@ -514,6 +554,7 @@ describe('AnnouncementsWidget', () => {
               hasPreviousPage: false,
               startCursor: null,
               endCursor: null,
+              totalCount: null,
             },
           },
         },
@@ -530,12 +571,16 @@ describe('AnnouncementsWidget', () => {
 
     await waitForLoadingToComplete()
 
-    // Should show truncated title (max 25 chars) - shows "This is an Extremely Long..."
-    expect(screen.getByText(/This is an Extremely Long\.\.\./)).toBeInTheDocument()
-
-    // Should show truncated message (max 60 chars) - shows "This is an extremely long announcement message that contains..."
     expect(
-      screen.getByText(/This is an extremely long announcement message that contains\.\.\./),
+      screen.getByText(
+        /This is an Extremely Long Announcement Title That Should Be Truncated Becau\.\.\./,
+      ),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByText(
+        /This is an extremely long announcement message that contains lots of details and should be truncated to prevent the widg\.\.\./,
+      ),
     ).toBeInTheDocument()
 
     cleanup()
@@ -592,7 +637,7 @@ describe('AnnouncementsWidget', () => {
       graphql.query('GetUserAnnouncements', () => {
         return HttpResponse.json(getMockResponseForReadState('unread'))
       }),
-      graphql.mutation('UpdateDiscussionReadState', () => {
+      graphql.mutation('UpdateDiscussionReadState', ({variables}) => {
         return HttpResponse.json({
           data: {
             updateDiscussionReadState: {
@@ -614,15 +659,18 @@ describe('AnnouncementsWidget', () => {
       expect(screen.getByText('Test Announcement 2')).toBeInTheDocument()
     })
 
+    const announctmentItemContainer = screen.getByTestId('announcement-item-2')
+    expect(announctmentItemContainer).toBeInTheDocument()
+
     // Find and click the mark as read button for Test Announcement 2
     const markReadButton = screen.getByTestId('mark-read-2')
     expect(markReadButton).toBeInTheDocument()
 
     fireEvent.click(markReadButton)
 
-    // The mutation should be called (we can't easily test the actual state change
-    // without more complex mocking, but we can verify the button exists and is clickable)
-    expect(markReadButton).toBeInTheDocument()
+    await waitFor(() => {
+      expect(markReadButton).toBeDisabled()
+    })
 
     cleanup()
   })
@@ -659,6 +707,7 @@ describe('AnnouncementsWidget', () => {
               hasPreviousPage: false,
               startCursor: 'start-cursor',
               endCursor: 'end-cursor',
+              totalCount: 6,
             },
           },
         },
@@ -698,13 +747,10 @@ describe('AnnouncementsWidget', () => {
     cleanup()
   })
 
-  it('enriches announcements with course codes from course data', async () => {
+  it('renders course code pills from shared course data lookup', async () => {
     server.use(
       graphql.query('GetUserAnnouncements', ({variables}) => {
         return HttpResponse.json(getMockResponseForReadState(variables.readState))
-      }),
-      graphql.query('GetUserCoursesWithGradesConnection', () => {
-        return HttpResponse.json(mockCourseGradesResponse)
       }),
     )
 
@@ -712,12 +758,11 @@ describe('AnnouncementsWidget', () => {
 
     await waitForLoadingToComplete()
 
-    // Wait for the component to render and data to be enriched
     await waitFor(() => {
-      expect(screen.getByText('Test Announcement 2')).toBeInTheDocument() // Default unread filter
+      expect(screen.getByText('Test Announcement 2')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('ENG 201')).toBeInTheDocument() // Course code should be enriched
+    expect(screen.getByText('ENG 201')).toBeInTheDocument()
 
     cleanup()
   })
@@ -754,6 +799,7 @@ describe('AnnouncementsWidget', () => {
               hasPreviousPage: false,
               startCursor: null,
               endCursor: null,
+              totalCount: null,
             },
           },
         },
@@ -775,6 +821,126 @@ describe('AnnouncementsWidget', () => {
       expect(
         screen.getByText(/Test with non-breaking spaces&ampersands<brackets>/),
       ).toBeInTheDocument()
+    })
+
+    cleanup()
+  })
+
+  it('maintains pagination visibility when switching filters', async () => {
+    // Mock paginated responses for different filters
+    const paginatedUnreadResponse = {
+      data: {
+        legacyNode: {
+          _id: '123',
+          discussionParticipantsConnection: {
+            nodes: [
+              {
+                id: 'participant1',
+                read: false,
+                discussionTopic: {
+                  _id: '1',
+                  title: 'Unread Announcement 1',
+                  message: '<p>Unread message</p>',
+                  createdAt: '2025-01-15T10:00:00Z',
+                  contextName: 'Test Course 1',
+                  contextId: '1',
+                  isAnnouncement: true,
+                  author: {
+                    _id: 'user1',
+                    name: 'Test Teacher 1',
+                    avatarUrl: 'https://example.com/avatar1.jpg',
+                  },
+                },
+              },
+            ],
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: 'start-cursor',
+              endCursor: 'end-cursor',
+              totalCount: 6,
+            },
+          },
+        },
+      },
+    }
+
+    const paginatedAllResponse = {
+      data: {
+        legacyNode: {
+          _id: '123',
+          discussionParticipantsConnection: {
+            nodes: [
+              {
+                id: 'participant1',
+                read: true,
+                discussionTopic: {
+                  _id: '2',
+                  title: 'All Announcement 1',
+                  message: '<p>All message</p>',
+                  createdAt: '2025-01-15T10:00:00Z',
+                  contextName: 'Test Course 1',
+                  contextId: '1',
+                  isAnnouncement: true,
+                  author: {
+                    _id: 'user1',
+                    name: 'Test Teacher 1',
+                    avatarUrl: 'https://example.com/avatar1.jpg',
+                  },
+                },
+              },
+            ],
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: 'start-cursor-all',
+              endCursor: 'end-cursor-all',
+              totalCount: 9,
+            },
+          },
+        },
+      },
+    }
+
+    server.use(
+      graphql.query('GetUserAnnouncements', ({variables}) => {
+        if (variables.readState === 'unread') {
+          return HttpResponse.json(paginatedUnreadResponse)
+        }
+        return HttpResponse.json(paginatedAllResponse)
+      }),
+    )
+
+    const {cleanup} = setup()
+
+    await waitForLoadingToComplete()
+
+    // Wait for initial pagination to appear with "unread" filter
+    await waitFor(() => {
+      const paginationContainer = screen.getByTestId('pagination-container')
+      expect(paginationContainer).toBeInTheDocument()
+      expect(screen.getByText('1')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
+
+    // Change filter to "all"
+    const filterDropdown = screen.getByTitle('Unread')
+    fireEvent.click(filterDropdown)
+
+    const allOption = await screen.findByText('All')
+    fireEvent.click(allOption)
+
+    // Pagination should remain visible during and after filter change
+    await waitFor(() => {
+      const paginationContainer = screen.getByTestId('pagination-container')
+      expect(paginationContainer).toBeInTheDocument()
+    })
+
+    // Verify new pagination reflects the "all" filter's total count
+    await waitFor(() => {
+      expect(screen.getByText('1')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+      expect(screen.getByText('3')).toBeInTheDocument() // 9 items / 3 per page = 3 pages
     })
 
     cleanup()

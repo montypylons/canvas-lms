@@ -122,6 +122,28 @@ RSpec.describe PeerReviewSubAssignment do
         expect(peer_review_sub_assignment.send(:context_explicitly_provided?)).to be false
       end
     end
+
+    describe "#parent_assignment_not_discussion_topic_or_external_tool" do
+      it "is not valid when parent assignment is a discussion topic" do
+        discussion_topic_assignment = assignment_model(course:, title: "Discussion Topic Assignment", submission_types: "discussion_topic")
+        peer_review_sub_assignment = PeerReviewSubAssignment.new(parent_assignment: discussion_topic_assignment)
+        expect(peer_review_sub_assignment).not_to be_valid
+        expect(peer_review_sub_assignment.errors[:parent_assignment]).to include(I18n.t("cannot be a discussion topic"))
+      end
+
+      it "is not valid when parent assignment is an external tool" do
+        external_tool_assignment = assignment_model(course:, title: "External Tool Assignment", submission_types: "external_tool")
+        peer_review_sub_assignment = PeerReviewSubAssignment.new(parent_assignment: external_tool_assignment)
+        expect(peer_review_sub_assignment).not_to be_valid
+        expect(peer_review_sub_assignment.errors[:parent_assignment]).to include(I18n.t("cannot be an external tool"))
+      end
+
+      it "is valid when parent assignment is not a discussion topic or external tool" do
+        regular_assignment = assignment_model(course:, title: "Regular Assignment", submission_types: "online_text_entry")
+        peer_review_sub_assignment = PeerReviewSubAssignment.new(parent_assignment: regular_assignment)
+        expect(peer_review_sub_assignment).to be_valid
+      end
+    end
   end
 
   describe "#checkpoint?" do
@@ -139,6 +161,33 @@ RSpec.describe PeerReviewSubAssignment do
   describe "#governs_submittable?" do
     it "returns false" do
       expect(subject.governs_submittable?).to be(false)
+    end
+  end
+
+  describe "#effective_group_category_id" do
+    let(:course) { course_model(name: "Course with Assignment") }
+    let(:parent_assignment) { assignment_model(course:, title: "Parent Assignment") }
+    let(:group_category) { course.group_categories.create!(name: "Test Group Category") }
+
+    it "returns the group_category_id when set" do
+      peer_review_sub_assignment = PeerReviewSubAssignment.create!(
+        parent_assignment:,
+        group_category_id: group_category.id
+      )
+      expect(peer_review_sub_assignment.effective_group_category_id).to eq(group_category.id)
+    end
+
+    it "returns nil when group_category_id is not set" do
+      peer_review_sub_assignment = PeerReviewSubAssignment.create!(parent_assignment:)
+      expect(peer_review_sub_assignment.effective_group_category_id).to be_nil
+    end
+
+    it "returns nil when group_category_id is explicitly set to nil" do
+      peer_review_sub_assignment = PeerReviewSubAssignment.create!(
+        parent_assignment:,
+        group_category_id: nil
+      )
+      expect(peer_review_sub_assignment.effective_group_category_id).to be_nil
     end
   end
 

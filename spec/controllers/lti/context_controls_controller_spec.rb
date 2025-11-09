@@ -287,6 +287,42 @@ describe Lti::ContextControlsController, type: :request do
       end
     end
 
+    context "with inherited registration shared across multiple root accounts" do
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{site_admin_registration.id}/controls", params: }
+
+      let(:site_admin) { Account.site_admin }
+      let(:site_admin_user) { account_admin_user(account: site_admin) }
+      let(:site_admin_registration) do
+        Lti::CreateRegistrationService.call(
+          account: site_admin,
+          created_by: site_admin_user,
+          registration_params:,
+          configuration_params:
+        )
+      end
+      let(:other_root_account) { account_model }
+      let(:account_deployment) { site_admin_registration.new_external_tool(account) }
+      let(:other_deployment) { site_admin_registration.new_external_tool(other_root_account) }
+      let(:account_control) { account_deployment.primary_context_control }
+      let(:other_control) { other_deployment.primary_context_control }
+
+      before do
+        site_admin.enable_feature!(:lti_registrations_next)
+        other_root_account.enable_feature!(:lti_registrations_next)
+        account_control
+        other_control
+      end
+
+      it "only returns controls from the current root account" do
+        subject
+        expect(response).to be_successful
+
+        # Should only see controls from current account, not other_root_account
+        all_control_ids = response_json.flat_map { |d| d["context_controls"].pluck("id") }
+        expect(all_control_ids).to eql([account_control.id])
+      end
+    end
+
     context "with no deployments" do
       before do
         registration.deployments.each(&:destroy)
@@ -433,6 +469,23 @@ describe Lti::ContextControlsController, type: :request do
       )
     end
 
+    it "tracks the changes" do
+      expect { subject }.to change { Lti::RegistrationHistoryEntry.count }.by(1)
+      history_entry = Lti::RegistrationHistoryEntry.last
+
+      expect(history_entry.diff["context_controls"]).to match_array(
+        [["+", [Lti::ContextControl.last.id], Lti::ContextControl.last.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)]]
+      )
+
+      # We created a bunch, so the old will just be an empty hash.
+      expect(history_entry.old_context_controls).to eq({})
+      expect(history_entry.new_context_controls).to be_present
+
+      new_control_id = Lti::ContextControl.last.id
+      expect(history_entry.new_context_controls[new_control_id.to_s])
+        .to eql(Lti::ContextControl.last.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES))
+    end
+
     context "with course_id" do
       let(:course) { course_model(account:) }
       let(:params) { { course_id: course.id } }
@@ -452,7 +505,7 @@ describe Lti::ContextControlsController, type: :request do
       it "returns 422" do
         subject
         expect(response).to have_http_status(:unprocessable_entity)
-        expect(response_json.dig("errors", 0)).to eq("Context must have either an account or a course, not both")
+        expect(response_json.dig("errors", 0)).to eq("Exactly one context must be present")
       end
     end
 
@@ -684,7 +737,8 @@ describe Lti::ContextControlsController, type: :request do
       let(:subdeployment) { registration.new_external_tool(subaccount).tap(&:save!) }
 
       it "creates context controls" do
-        expect { subject }.to change { Lti::ContextControl.count }.by(3)
+        subdeployment
+        expect { subject }.to change { Lti::ContextControl.count }.by(2)
         expect(response).to be_successful
         expect(response_json.length).to eq(3)
         expect(response_json.map(&:with_indifferent_access)).to match_array(
@@ -694,6 +748,33 @@ describe Lti::ContextControlsController, type: :request do
             hash_including(account_id: subaccount.id, deployment_id: subdeployment.id)
           ]
         )
+      end
+
+      it "tracks the changes properly" do
+        subdeployment
+        expect { subject }.to change { Lti::RegistrationHistoryEntry.count }.by(1)
+        expect(response).to be_successful
+
+        subaccount_control = Lti::ContextControl.find_by(account_id: subaccount2.id, registration:)
+        course_control = Lti::ContextControl.find_by(course_id: course.id, registration:)
+
+        # The subdeployment control isn't included because it doesn't actually get changed by this request
+        # and our history tracker notices that!
+        expected_diff = [
+          ["+", [subaccount_control.id], subaccount_control.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)],
+          ["+", [course_control.id], course_control.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)],
+        ]
+
+        history_entry = Lti::RegistrationHistoryEntry.last
+        expect(history_entry.diff["context_controls"]).to match_array(expected_diff)
+
+        expect(history_entry.old_context_controls).to be_present
+        expect(history_entry.new_context_controls).to be_present
+
+        expect(history_entry.new_context_controls[subaccount_control.id.to_s])
+          .to eql(subaccount_control.reload.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES))
+        expect(history_entry.new_context_controls[course_control.id.to_s])
+          .to eql(course_control.reload.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES))
       end
     end
 
@@ -725,6 +806,21 @@ describe Lti::ContextControlsController, type: :request do
         )
       end
 
+      it "tracks the changes" do
+        subject
+
+        body = response.parsed_body
+
+        controls = Lti::ContextControl.where(id: body.pluck("id"))
+
+        expected = controls.map do |control|
+          ["+", [control.id], control.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)]
+        end
+        expect(Lti::RegistrationHistoryEntry.last.diff["context_controls"]).to match_array(
+          expected
+        )
+      end
+
       context "when anchor control already exists" do
         let(:anchor_control) { Lti::ContextControl.create!(account: other_subaccount, registration:, deployment: root_deployment, available: true) }
 
@@ -743,6 +839,23 @@ describe Lti::ContextControlsController, type: :request do
               hash_including(account_id: other_subaccount.id, available: root_deployment.primary_context_control.available), # existing anchor is still returned
               hash_including(account_id: subaccount.id, available: root_deployment.primary_context_control.available) # anchor
             ]
+          )
+        end
+
+        it "tracks the changes" do
+          subject
+
+          body = response.parsed_body
+
+          controls = Lti::ContextControl.where(id: body.filter { |c| c["id"] != anchor_control.id }.pluck("id"))
+
+          expected = controls.map do |control|
+            ["+", [control.id], control.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)]
+          end
+          expected << ["~", [anchor_control.id, "available"], true, false]
+
+          expect(Lti::RegistrationHistoryEntry.last.diff["context_controls"]).to match_array(
+            expected
           )
         end
       end
@@ -829,6 +942,25 @@ describe Lti::ContextControlsController, type: :request do
           ]
         )
       end
+
+      it "tracks the changes" do
+        expect { subject }.to change { Lti::RegistrationHistoryEntry.count }.by(1)
+
+        history_entry = Lti::RegistrationHistoryEntry.last
+        expect(history_entry.diff["context_controls"]).to match_array(
+          [
+            ["~", [existing_control.id, "available"], false, true],
+            ["+", [Lti::ContextControl.last.id], Lti::ContextControl.last.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES)]
+          ]
+        )
+
+        expect(history_entry.old_context_controls[existing_control.id.to_s]["available"]).to be false
+        expect(history_entry.new_context_controls[existing_control.id.to_s]["available"]).to be true
+
+        new_control = Lti::ContextControl.last
+        expect(history_entry.new_context_controls[new_control.id.to_s])
+          .to eql(new_control.attributes.with_indifferent_access.slice(*Lti::ContextControl::TRACKED_ATTRIBUTES))
+      end
     end
 
     context "with a control referencing an existing control in a course" do
@@ -860,6 +992,29 @@ describe Lti::ContextControlsController, type: :request do
             hash_including(course_id: course.id, available: false)
           ]
         )
+      end
+
+      it "does not create a history entry when re-setting the same values" do
+        # First create both controls
+        post "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/controls/bulk",
+             params: [
+               { account_id: subaccount.id, available: true },
+               { course_id: course.id, available: false }
+             ],
+             as: :json
+        expect(response).to be_successful
+
+        # Now try to create them again with the same values - should not create a history entry
+        expect do
+          post "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/controls/bulk",
+               params: [
+                 { account_id: subaccount.id, available: true },
+                 { course_id: course.id, available: false }
+               ],
+               as: :json
+        end.not_to change { Lti::RegistrationHistoryEntry.count }
+
+        expect(response).to be_successful
       end
     end
 
@@ -906,7 +1061,7 @@ describe Lti::ContextControlsController, type: :request do
       end
     end
 
-    context "with control for a context outside the root acvcount" do
+    context "with control for a context outside the root account" do
       let(:other_account) { account_model }
       let(:params) do
         [
@@ -987,6 +1142,33 @@ describe Lti::ContextControlsController, type: :request do
         expect(control.reload.available).to be false
       end
 
+      it "tracks the changes" do
+        subject
+        history_entry = Lti::RegistrationHistoryEntry.last
+
+        expect(history_entry.diff["context_controls"]).to match_array(
+          [["~", [control.id, "available"], true, false]]
+        )
+
+        expect(history_entry.old_context_controls[control.id.to_s]["available"]).to be true
+        expect(history_entry.new_context_controls[control.id.to_s]["available"]).to be false
+      end
+
+      it "does not create a history entry when no changes are made" do
+        # First update to set available to false
+        put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration_id}/controls/#{control_id}",
+            params: { available: false }
+        expect(control.reload.available).to be false
+
+        # Try to update with the same value - should not create a history entry
+        expect do
+          put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration_id}/controls/#{control_id}",
+              params: { available: false }
+        end.not_to change { Lti::RegistrationHistoryEntry.count }
+
+        expect(response).to be_successful
+      end
+
       context "when missing the available param" do
         let(:params) { { not_the_right_parameter: true } }
 
@@ -1044,6 +1226,13 @@ describe Lti::ContextControlsController, type: :request do
       subject
       expect(control.reload).to be_deleted
       expect(response).to be_successful
+    end
+
+    it "tracks the changes" do
+      subject
+      expect(Lti::RegistrationHistoryEntry.last.diff["context_controls"]).to match_array(
+        [["~", [control.id, "workflow_state"], "active", "deleted"]]
+      )
     end
 
     context "with the deployment's primary control" do

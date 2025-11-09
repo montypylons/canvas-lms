@@ -17,14 +17,12 @@
  */
 
 import {ToggleGroup} from '@instructure/ui-toggle-details'
-import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
+import {Heading} from '@instructure/ui-heading'
 import './settings-section-toggle.css'
 
 export type SettingsSectionToggleProps = {
   title: string
-  collapsedLabel: string
-  expandedLabel: string
   defaultExpanded?: boolean
   includeSeparator: boolean
   children: React.ReactNode
@@ -32,8 +30,6 @@ export type SettingsSectionToggleProps = {
 
 export const SettingsSectionToggle = ({
   title,
-  collapsedLabel,
-  expandedLabel,
   defaultExpanded,
   includeSeparator,
   children,
@@ -44,8 +40,12 @@ export const SettingsSectionToggle = ({
         defaultExpanded={defaultExpanded}
         border={false}
         transition={false}
-        toggleLabel={isExpanded => (isExpanded ? expandedLabel : collapsedLabel)}
-        summary={<Text variant="contentImportant">{title}</Text>}
+        toggleLabel={title}
+        summary={
+          <Heading variant="titleCardMini" level="h3">
+            {title}
+          </Heading>
+        }
         data-settingssectiontoggle
         themeOverride={{
           borderColor: 'transparent',

@@ -223,22 +223,6 @@ describe "calendar2" do
           expect(event1.start_at).to eql(@three_days_earlier)
         end
 
-        it "extends event to multiple days by dragging", priority: "2" do
-          skip("dragging events are flaky and need more research FOO-4335")
-
-          create_middle_day_event
-          date_of_middle_day = find_middle_day.attribute("data-date")
-          date_of_next_day = (Time.zone.parse(date_of_middle_day) + 1.day).strftime("%Y-%m-%d")
-          f(".fc-content-skeleton .fc-event-container .fc-resizer")
-          next_day = fj("[data-date=#{date_of_next_day}]")
-          drag_and_drop_element(f(".fc-content-skeleton .fc-event-container .fc-resizer"), next_day)
-          fj(".fc-event:visible").click
-          # observe the event details show date range from event start to date to end date
-          original_day_text = format_time_for_view(Time.zone.parse(date_of_middle_day))
-          extended_day_text = format_time_for_view(Time.zone.parse(date_of_next_day) + 1.day)
-          expect(f(".event-details-timestring .date-range").text).to eq("#{original_day_text} - #{extended_day_text}")
-        end
-
         it "prevents drag and drop for discussion checkpoints", priority: "1" do
           @course.account.enable_feature!(:discussion_checkpoints)
           topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded discussion with checkpoints")
@@ -807,7 +791,7 @@ describe "calendar2" do
       end
 
       it "does not include the module override in the assignment list" do
-        skip "FOO-5060"
+        skip "FOO-5060 2025-01-26"
         @section1 = CourseSection.create!(name: "Section 1", course: @course)
         student_in_section(@section1, user: @student)
         @assignment = @course.assignments.create!(title: "new assignment")

@@ -177,7 +177,7 @@ if (!('INST' in window)) window.INST = {}
 declare const ENV: GlobalEnv & EnvGradebookSpeedGrader
 
 const I18n = createI18nScope('speed_grader')
-
+const STACKED_HEADER_CUTOFF_WIDTH = '800px'
 const selectors = new JQuerySelectorCache()
 const SPEED_GRADER_LTI_ASSET_REPORTS_MOUNT_POINT = 'speed_grader_lti_asset_reports_mount_point'
 const SPEED_GRADER_COMMENT_TEXTAREA_MOUNT_POINT = 'speed_grader_comment_textarea_mount_point'
@@ -217,7 +217,8 @@ let $turnitinInfoContainer: JQuery
 let $left_side: JQuery
 let $resize_overlay: JQuery
 let $right_side: JQuery
-let $width_resizer: JQuery
+let $width_resizer_ew: JQuery
+let $width_resizer_ns: JQuery
 let $gradebook_header: JQuery
 let $grading_box_selected_grader: JQuery
 let assignmentUrl: string
@@ -608,7 +609,7 @@ export function initDropdown() {
     defaultDiscussionViewElement.setAttribute('checked', 'checked')
   }
 
-  $('#show_new_sg_ui').on('click', function () {
+  $('#show_new_sg_ui').on('click', () => {
     const searchParams = new URLSearchParams(window.location.search)
 
     if (searchParams.has('platform_sg')) {
@@ -1052,16 +1053,11 @@ export function renderLtiAssetReports(
     student = {studentUserId: null, studentAnonymousId: submission.anonymous_id}
   }
 
-  const {attempt, submission_type: submissionType} = historicalSubmission
+  const {attempt, submission_type} = historicalSubmission
   const assignmentId = submission.assignment_id
+  const submissionType = ensureCompatibleSubmissionType(submission_type)
 
-  if (
-    student &&
-    assignmentId &&
-    attempt &&
-    submissionType &&
-    ensureCompatibleSubmissionType(submissionType)
-  ) {
+  if (student && assignmentId && attempt && submissionType) {
     const attachments = (historicalSubmission.versioned_attachments || []).map(({attachment}) => ({
       _id: attachment.id,
       displayName: attachment.display_name,
@@ -1241,7 +1237,7 @@ function initCommentBox() {
 
     configureRecognition(recognition, messages)
 
-    const processSpeech = function ($this: JQuery<HTMLElement>) {
+    const processSpeech = ($this: JQuery<HTMLElement>) => {
       if ($('#record_button').attr('recording') === 'true') {
         recognition.stop()
         const current_comment = $('#final_results').html() + $('#interim_results').html()
@@ -1258,9 +1254,8 @@ function initCommentBox() {
       }
     }
 
-    const formatComment = function (current_comment: string) {
-      return current_comment.replace(/<p><\/p>/g, '\n\n').replace(/<br>/g, '\n')
-    }
+    const formatComment = (current_comment: string) =>
+      current_comment.replace(/<p><\/p>/g, '\n\n').replace(/<br>/g, '\n')
 
     $('.speech_recognition_link').click(() => {
       if ($('.speech_recognition_link').hasClass('ui-state-disabled')) {
@@ -1547,6 +1542,13 @@ EG = {
       $left_side.css('width', '')
       $right_side.css('width', '')
     }
+    function makeFullHeight() {
+      $full_width_container.addClass('full_height')
+      $left_side.css('height', '')
+      $right_side.css('height', '')
+      $width_resizer_ns.css('bottom', '0')
+      $left_side.css('flex', '1 1 100%')
+    }
     $(document).mouseup(_event => {
       $resize_overlay.hide()
     })
@@ -1554,7 +1556,7 @@ EG = {
     $resize_overlay.click(function (this: HTMLElement, _event) {
       $(this).hide()
     })
-    $width_resizer
+    $width_resizer_ew
       .mousedown(_event => {
         $resize_overlay.show()
       })
@@ -1566,7 +1568,7 @@ EG = {
         snap: '#full_width_container',
         appendTo: '#full_width_container',
         helper() {
-          return $width_resizer.clone().addClass('clone')
+          return $width_resizer_ew.clone().addClass('clone')
         },
         snapTolerance: 200,
         drag(_event: Event, ui) {
@@ -1574,7 +1576,7 @@ EG = {
           const windowWidth = $window.width() as number
           $left_side.width(`${(offset.left / windowWidth) * 100}%`)
           $right_side.width(`${100 - (offset.left / windowWidth) * 100}%`)
-          $width_resizer.css('left', '0')
+          $width_resizer_ew.css('left', '0')
           if (windowWidth - offset.left < $(this).draggable('option', 'snapTolerance')) {
             makeFullWidth()
           } else {
@@ -1596,8 +1598,51 @@ EG = {
           $full_width_container.removeClass('full_width')
         } else {
           makeFullWidth()
-          $(this).addClass('highlight', 100, function (this: HTMLElement) {
-            $(this).removeClass('highlight', 4000)
+          $(this).addClass('highlight')
+          $(this).on('animationend', function () {
+            $(this).removeClass('highlight')
+          })
+        }
+      })
+
+    $width_resizer_ns
+      .mousedown(_event => {
+        $resize_overlay.show()
+      })
+      .draggable({
+        axis: 'y',
+        cursor: 'crosshair',
+        scroll: false,
+        containment: '#full_width_container',
+        snap: '#full_width_container',
+        appendTo: '#full_width_container',
+        helper: 'original',
+        drag(_event: Event, dragBar) {
+          const topContainerDesiredHeight = dragBar.offset.top - $full_width_container.offset()!.top
+          const topContainerDesiredPercent =
+            (topContainerDesiredHeight / $full_width_container.height()!) * 100
+          $left_side.css('flex', `0 0 ${topContainerDesiredPercent}%`)
+          $right_side.css('flex', `0 0 ${100 - topContainerDesiredPercent}%`)
+        },
+        stop(event: Event, _ui) {
+          event.stopImmediatePropagation()
+          $resize_overlay.hide()
+        },
+      })
+      .click(function (this: HTMLElement, event) {
+        event.preventDefault()
+        if ($full_width_container.hasClass('full_height')) {
+          $full_width_container.removeClass('full_height')
+          setDefaultHeightsForLeftRightSideStacked()
+          $width_resizer_ns.css('bottom', '')
+        } else {
+          $left_side.css('flex', '1')
+          $right_side.css('flex', '1')
+          $width_resizer_ns.css('top', '')
+          makeFullHeight()
+          $(this).addClass('highlight')
+          $(this).on('animationend', function () {
+            $(this).removeClass('highlight')
           })
         }
       })
@@ -1609,7 +1654,7 @@ EG = {
       const i =
         // @ts-expect-error
         $('#submission_to_view').val() || EG.currentStudent.submission.submission_history.length - 1
-      EG.currentStudent.submission.currentSelectedIndex = parseInt(String(i), 10)
+      EG.currentStudent.submission.currentSelectedIndex = Number.parseInt(String(i), 10)
       EG.handleSubmissionSelectionChange()
     })
 
@@ -1731,7 +1776,7 @@ EG = {
 
     const attemptParam = utils.getParam('attempt')
     if (attemptParam) {
-      EG.initialVersion = parseInt(attemptParam, 10) - 1
+      EG.initialVersion = Number.parseInt(attemptParam, 10) - 1
     }
 
     // Check if this student ID "resolves" to a different one (e.g., it's an
@@ -2803,10 +2848,7 @@ EG = {
     $vericiteInfoContainer = $('#submission_files_container .turnitin_info_container').empty()
     $.each(submission.versioned_attachments || [], (_i, a) => {
       const attachment: Attachment = a.attachment
-      if (
-        (attachment.crocodoc_url || attachment.canvadoc_url) &&
-        EG.currentStudent.provisional_crocodoc_urls
-      ) {
+      if (attachment.canvadoc_url && EG.currentStudent.provisional_crocodoc_urls) {
         const urlInfo = find(
           EG.currentStudent.provisional_crocodoc_urls,
           (url: ProvisionalCrocodocUrl) => url.attachment_id === attachment.id,
@@ -2819,11 +2861,7 @@ EG = {
         attachment.provisional_crocodoc_url = null
         attachment.provisional_canvadoc_url = null
       }
-      if (
-        attachment.crocodoc_url ||
-        attachment.canvadoc_url ||
-        isPreviewable(attachment.content_type)
-      ) {
+      if (attachment.canvadoc_url || isPreviewable(attachment.content_type)) {
         inlineableAttachments.push(attachment)
       }
 
@@ -2992,7 +3030,7 @@ EG = {
     if (s && s.submission_history && s.submission_history.length > 0) {
       submissionHistory = s.submission_history
       noSubmittedAt = I18n.t('no_submission_time', 'no submission time')
-      selectedIndex = parseInt(
+      selectedIndex = Number.parseInt(
         String($('#submission_to_view').val() || submissionHistory.length - 1),
         10,
       )
@@ -3148,15 +3186,15 @@ EG = {
     if (scores.length) {
       // if there are some submissions that have been graded.
       $average_score_wrapper.show()
-      const avg = function (arr: number[]) {
+      const avg = (arr: number[]) => {
         let sum = 0
         for (let i = 0, j = arr.length; i < j; i++) {
           sum += arr[i]
         }
         return sum / arr.length
       }
-      const roundWithPrecision = function (number: number, precision: number) {
-        precision = Math.abs(parseInt(String(precision), 10)) || 0
+      const roundWithPrecision = (number: number, precision: number) => {
+        precision = Math.abs(Number.parseInt(String(precision), 10)) || 0
         const coefficient = 10 ** precision
         return Math.round(number * coefficient) / coefficient
       }
@@ -3366,7 +3404,7 @@ EG = {
   },
 
   renderAttachment(attachment: Attachment) {
-    // show the crocodoc doc if there is one
+    // show the canvadoc doc if there is one
     // then show the google attachment if there is one
     // then show the first browser viewable attachment if there is one
     this.emptyIframeHolder()
@@ -3375,6 +3413,7 @@ EG = {
       id: 'speedgrader_iframe',
       mimeType: attachment.content_type,
       attachment_id: attachment.id,
+      attachment_name: attachment.display_name,
       // @ts-expect-error
       submission_id: this.currentStudent.submission.id,
       attachment_view_inline_ping_url: attachment.view_inline_ping_url,
@@ -3383,41 +3422,13 @@ EG = {
         attachment.workflow_state === 'processing',
     }
 
-    if (
-      !attachment.hijack_crocodoc_session &&
-      attachment.submitted_to_crocodoc &&
-      !attachment.crocodoc_url
-    ) {
-      $('#crocodoc_pending').show()
-    }
     const canvadocMessage = I18n.t(
       'canvadoc_expiring',
       'Your Canvas DocViewer session is expiring soon.  Please ' +
         'reload the window to avoid losing any work.',
     )
 
-    if (attachment.crocodoc_url) {
-      if (!attachment.hijack_crocodoc_session) {
-        const crocodocMessage = I18n.t(
-          'crocodoc_expiring',
-          'Your Crocodoc session is expiring soon.  Please reload ' +
-            'the window to avoid losing any work.',
-        )
-        const aggressiveWarnings = this.generateWarningTimings(1)
-        this.displayExpirationWarnings(aggressiveWarnings, 1, crocodocMessage)
-      } else {
-        const aggressiveWarnings = this.generateWarningTimings(10)
-        this.displayExpirationWarnings(aggressiveWarnings, 10, canvadocMessage)
-      }
-
-      $iframe_holder.show()
-      loadDocPreview(
-        $iframe_holder[0],
-        $.extend(previewOptions, {
-          crocodoc_session_url: attachment.provisional_crocodoc_url || attachment.crocodoc_url,
-        }),
-      )
-    } else if (attachment.canvadoc_url) {
+    if (attachment.canvadoc_url) {
       const aggressiveWarnings = this.generateWarningTimings(10)
       this.displayExpirationWarnings(aggressiveWarnings, 10, canvadocMessage)
 
@@ -3656,8 +3667,6 @@ EG = {
   },
 
   addCommentSubmissionHandler(commentElement, comment) {
-    const that = this
-
     const isConcluded = isStudentConcluded(
       window.jsonData.studentMap,
       EG.currentStudent[anonymizableId],
@@ -3669,16 +3678,16 @@ EG = {
         let updateUrl = ''
         let updateData = {}
         let updateAjaxOptions = {}
-        const commentUpdateSucceeded = function (data: {submission_comment: SubmissionComment}) {
+        const commentUpdateSucceeded = (data: {submission_comment: SubmissionComment}) => {
           let updatedComments = []
-          const $replacementComment = that.renderComment(data.submission_comment)
+          const $replacementComment = this.renderComment(data.submission_comment)
           // @ts-expect-error
           $replacementComment.show()
           // @ts-expect-error
           commentElement.replaceWith($replacementComment)
 
           updatedComments = map(
-            that.currentStudent.submission.submission_comments,
+            this.currentStudent.submission.submission_comments,
             (item: SubmissionComment) => {
               const submissionComment = item.submission_comment || item
 
@@ -3690,9 +3699,9 @@ EG = {
             },
           )
 
-          that.currentStudent.submission.submission_comments = updatedComments
+          this.currentStudent.submission.submission_comments = updatedComments
         }
-        const commentUpdateFailed = function (_jqXH: JQuery.jqXHR<any>, _textStatus: string) {
+        const commentUpdateFailed = (_jqXH: JQuery.jqXHR<any>, _textStatus: string) => {
           $.flashError(I18n.t('Failed to submit draft comment'))
         }
 
@@ -3718,7 +3727,6 @@ EG = {
   },
 
   renderComment(commentData: SubmissionComment, incomingOpts?: CommentRenderingOptions) {
-    const self = this
     let comment = commentData
     let spokenComment = ''
     let submitCommentButtonText = ''
@@ -3737,8 +3745,13 @@ EG = {
       comment = commentData.submission_comment
     }
 
-    // don't render private comments when viewing a group assignment
-    if (!comment.group_comment_id && window.jsonData.GROUP_GRADING_MODE) return undefined
+    // don't render private comments when viewing a group assignment with actual groups
+    if (
+      !comment.group_comment_id &&
+      window.jsonData.GROUP_GRADING_MODE &&
+      window.jsonData.HAS_GROUPS
+    )
+      return undefined
 
     // For screenreaders
     spokenComment = comment.comment.replace(/\s+/, ' ')
@@ -3803,7 +3816,7 @@ EG = {
     $.each(
       comment.cached_attachments || comment.attachments || [],
       (_index, attachment: Attachment) => {
-        const attachmentElement = self.renderCommentAttachment(comment, attachment, opts)
+        const attachmentElement = this.renderCommentAttachment(comment, attachment, opts)
 
         commentElement.find('.comment_attachments').append($(attachmentElement).show())
       },
@@ -3836,7 +3849,6 @@ EG = {
   },
 
   showDiscussion() {
-    const that = this
     const commentRenderingOptions: CommentRenderingOptions = {
       hideStudentNames: utils.shouldHideStudentNames(),
       commentBlank: $comment_blank,
@@ -3857,7 +3869,7 @@ EG = {
           }
         }
 
-        const commentElement = that.renderComment(comment, commentRenderingOptions)
+        const commentElement = this.renderComment(comment, commentRenderingOptions)
 
         if (commentElement) {
           $comments.append($(commentElement).show())
@@ -4461,7 +4473,7 @@ EG = {
   compareStudentsBy(f: (student1: StudentWithSubmission) => number) {
     const secondaryAttr = isAnonymous ? 'anonymous_id' : 'sortable_name'
 
-    return function (studentA, studentB) {
+    return (studentA, studentB) => {
       const a = f(studentA)
       const b = f(studentB)
 
@@ -4585,7 +4597,7 @@ EG = {
     $.flashError(errorMessage)
   },
 
-  selectProvisionalGrade(provisionalGradeId?: string, refetchOnSuccess: boolean = false) {
+  selectProvisionalGrade(provisionalGradeId?: string, refetchOnSuccess = false) {
     const selectGradeUrl = replaceTags(ENV.provisional_select_url || '', {
       provisional_grade_id: provisionalGradeId,
     })
@@ -4922,7 +4934,8 @@ function setupSelectors() {
   $submissions_container = $('#submissions_container')
   $this_student_does_not_have_a_submission = $('#this_student_does_not_have_a_submission').hide()
   $this_student_has_a_submission = $('#this_student_has_a_submission').hide()
-  $width_resizer = $('#width_resizer')
+  $width_resizer_ew = $('#width_resizer_ew')
+  $width_resizer_ns = $('#width_resizer_ns')
   $window = $(window)
   $x_of_x_students = $('#x_of_x_students_frd')
   $word_count = $('#submission_word_count')
@@ -4937,6 +4950,37 @@ function setupSelectors() {
   header = setupHeader()
 }
 
+function setDefaultHeightsForLeftRightSideStacked() {
+  $left_side.css('flex', '0 0 60%')
+  $right_side.css('flex', '0 0 40%')
+}
+
+function handleMediaQueryChange(e: MediaQueryListEvent) {
+  if (e.matches) {
+    // screen is <= STACKED_HEADER_CUTOFF_WIDTH
+    $left_side.css('width', '')
+    $right_side.css('width', '')
+    $full_width_container.removeClass('full_width')
+    setDefaultHeightsForLeftRightSideStacked()
+  } else {
+    // screen is > STACKED_HEADER_CUTOFF_WIDTH
+    $left_side.css('height', '')
+    $right_side.css('height', '')
+    $width_resizer_ns.css('top', '')
+    $full_width_container.removeClass('full_height')
+  }
+}
+
+function setupMediaQueryListener() {
+  const mql = window.matchMedia(`(max-width: ${STACKED_HEADER_CUTOFF_WIDTH})`)
+
+  if (mql?.addEventListener) {
+    mql.addEventListener('change', handleMediaQueryChange)
+  } else if (mql?.addListener) {
+    mql.addListener(handleMediaQueryChange)
+  }
+}
+
 // Helper function that guard against provisional_grades being null, allowing
 // Anonymous Moderated Marking-related moderation code to forgo that check
 // when considering provisional grades.
@@ -4947,6 +4991,7 @@ function currentStudentProvisionalGrades() {
 export default {
   setup() {
     setupSelectors()
+    setupMediaQueryListener()
     renderSettingsMenu(header)
 
     if (ENV.can_view_audit_trail) {

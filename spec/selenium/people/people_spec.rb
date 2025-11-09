@@ -211,11 +211,34 @@ describe "people" do
       expect(dropdown_item_visible?("resendInvitation", "tr[id=user_#{@student_1.id}]")).to be true
     end
 
-    it "focuses on the + Group Set button after the tabs" do
+    it "focuses on the + Group Set button before the tabs", custom_timeout: 30 do
       get "/courses/#{@course.id}/users"
-      driver.execute_script("$('.collectionViewItems > li:last a').focus()")
-      active = driver.execute_script("return document.activeElement")
-      active.send_keys(:tab)
+      f("#people-options .Button").click
+      close_dropdown_menu
+      f("body").send_keys(:tab)
+      check_element_has_focus(f(".group-categories-actions .btn-primary"))
+      f("body").send_keys(:tab)
+      check_element_has_focus(f(".collectionViewItems > li:first-child"))
+    end
+
+    it "focuses on the + Group Set button before the tabs on groups page", custom_timeout: 30 do
+      GroupCategory.create(name: "Test Group", context: @course)
+      get "/courses/#{@course.id}/groups"
+      wait_for_ajaximations
+
+      # Click on the group tab to ensure we're on the groups page
+      group_tab = f(".collectionViewItems > li:nth-child(2)")
+      group_tab.click
+      wait_for_ajaximations
+
+      # Tab from the group tab to verify next focus is on group tab content, not button
+      # This verifies the button comes BEFORE tabs in DOM
+      f("body").send_keys(:tab)
+      # Should focus on something in the tab content area, not the button
+      # The button should only be reachable by shift+tab
+      f("body").send_keys([:shift, :tab])
+      check_element_has_focus(f(".collectionViewItems > li:nth-child(2)"))
+      f("body").send_keys([:shift, :tab])
       check_element_has_focus(f(".group-categories-actions .btn-primary"))
     end
 
@@ -237,17 +260,6 @@ describe "people" do
     it "makes a new set of student groups" do
       get "/courses/#{@course.id}/users"
       create_student_group
-    end
-
-    # This just duplicates a test in the Jest spec for the modal
-    xit "tests self sign up functionality" do
-      get "/courses/#{@course.id}/users"
-      f("#people-options .Button").click
-      expect_new_page_load { fln("View User Groups").click }
-      dialog = open_student_group_dialog
-      dialog.find_element(:css, "#enable_self_signup").click
-      expect(dialog.find_element(:css, "#split_groups")).not_to be_displayed
-      expect(dialog).to include_text("groups now")
     end
 
     it "tests self sign up / group structure functionality" do
@@ -284,43 +296,6 @@ describe "people" do
       f(%(button[data-testid="group-set-save"])).click
       wait_for_ajaximations
       expect(fj("span:contains('If you are going to define a limit group members, it must be greater than 1.')")).to be_truthy
-    end
-
-    it "tests group structure functionality" do
-      skip "FOO-3810 (10/6/2023)"
-      get "/courses/#{@course.id}/users"
-      enroll_more_students
-
-      group_count = "4"
-      expect_new_page_load do
-        f("#people-options .Button").click
-        fln("View User Groups").click
-      end
-      open_student_group_dialog
-      replace_and_proceed f("#new-group-set-name"), "new group"
-      force_click('[data-testid="group-structure-selector"]')
-      force_click('[data-testid="group-structure-num-groups"]')
-      f('[data-testid="split-groups"]').send_keys(group_count)
-      expect(@course.groups.count).to eq 0
-      f(%(button[data-testid="group-set-save"])).click
-      run_jobs
-      wait_for_ajaximations
-      expect(@course.groups.count).to eq group_count.to_i
-      expect(f(".groups-with-count")).to include_text("Groups (#{group_count})")
-    end
-
-    it "auto-creates groups based on # of students" do
-      skip "FOO-3810 (10/6/2023)"
-      enroll_more_students
-      get "/courses/#{@course.id}/groups#new"
-      replace_and_proceed f("#new-group-set-name"), "Groups of 2"
-      force_click('[data-testid="group-structure-selector"]')
-      force_click('[data-testid="group-structure-students-per-group"]')
-      f('[data-testid="num-students-per-group"]').send_keys("2")
-      f('button[data-testid="group-set-save"]').click
-      run_jobs
-      wait_for_ajaximations
-      expect(ff("li.group").size).to eq 3
     end
 
     it "edits a student group" do
@@ -418,7 +393,6 @@ describe "people" do
     end
 
     it "shows selection checkboxes for teachers when the allow_assign_to_differentiation_tags setting is ON" do
-      Account.default.enable_feature! :assign_to_differentiation_tags
       Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
       Account.default.save!
       Account.default.reload
@@ -745,7 +719,7 @@ describe "people" do
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
       CoursePeople.select_from_section_autocomplete("section2")
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).to include_text("section2")
     end
@@ -758,7 +732,7 @@ describe "people" do
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
       find_button("Remove user from section2").click
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).not_to include_text("section2")
     end
@@ -770,7 +744,7 @@ describe "people" do
       f(".DesignerEnrollment .icon-more").click
       fln("Edit Sections").click
       CoursePeople.select_from_section_autocomplete("section2")
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".DesignerEnrollment")[0]).to include_text("section2")
     end
@@ -807,7 +781,7 @@ describe "people" do
       CoursePeople.select_from_section_autocomplete("section2")
       find_button("Remove user from section2")
       expect(find_button("Remove user from section2")).not_to be_nil
-      f(".ui-dialog-buttonset .btn-primary").click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
 
       ff(".icon-more")[1].click
@@ -1025,6 +999,34 @@ describe "people" do
       expect(driver.current_url).to include("/courses/#{@course.id}/groups")
     end
 
+    it "navigates to groups page using right arrow key", custom_timeout: 30 do
+      user_session(@teacher)
+
+      get "/courses/#{@course.id}/users"
+
+      everyone_tab = f(".collectionViewItems > li:first-child")
+      everyone_tab.click
+      expect_new_page_load { everyone_tab.send_keys(:arrow_right) }
+      expect(driver.current_url).to include("/courses/#{@course.id}/groups")
+    end
+
+    it "navigates to users page using left arrow key from group tab", custom_timeout: 30 do
+      user_session(@teacher)
+
+      GroupCategory.create(name: "Test Group", context: @course)
+      get "/courses/#{@course.id}/groups"
+      wait_for_ajaximations
+
+      # Click on the first group category tab
+      group_tab = f(".collectionViewItems > li:nth-child(2)")
+      group_tab.click
+      wait_for_ajaximations
+
+      # Press left arrow to navigate back to users page
+      expect_new_page_load { group_tab.send_keys(:arrow_left) }
+      expect(driver.current_url).to include("/courses/#{@course.id}/users")
+    end
+
     context "student tray" do
       before :once do
         @account = Account.default
@@ -1099,7 +1101,6 @@ describe "people" do
         course_with_teacher active_user: true, active_course: true, active_enrollment: true, name: "Mrs. Commanderson"
         @student = create_user("student@test.com")
         enroll_student(@student)
-        Account.default.enable_feature! :assign_to_differentiation_tags
         Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
         Account.default.save!
         Account.default.reload
@@ -1109,13 +1110,12 @@ describe "people" do
         user_session @teacher
       end
 
-      it "renders the Manage Tags Button if the FF is on" do
+      it "renders the Manage Tags Button if the setting is on" do
         get "/courses/#{@course.id}/users"
         expect(fj("button:contains('Manage Tags')")).to be_displayed
       end
 
-      it "does not render the Manage Tags Button if the FF is off" do
-        Account.default.disable_feature! :assign_to_differentiation_tags
+      it "does not render the Manage Tags Button if the setting is off" do
         Account.default.settings[:allow_assign_to_differentiation_tags] = { value: false }
         Account.default.save!
         Account.default.reload

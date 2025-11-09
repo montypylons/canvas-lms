@@ -134,6 +134,7 @@ describe WikiPagesApiController, type: :request do
           context "when block content editor feature flag is on" do
             before do
               Account.default.enable_feature!(:block_content_editor)
+              @course.enable_feature!(:block_content_editor_eap)
             end
 
             it "creates block_editor association" do
@@ -150,7 +151,8 @@ describe WikiPagesApiController, type: :request do
 
           context "when block content editor feature flag is off" do
             before do
-              Account.default.disable_feature!(:block_content_editor)
+              Account.default.enable_feature!(:block_content_editor)
+              @course.disable_feature!(:block_content_editor_eap)
             end
 
             it "does not create block_editor association" do
@@ -190,43 +192,6 @@ describe WikiPagesApiController, type: :request do
           it 'does not allow the "editing_roles" field to be set' do
             create_wiki_page(@teacher, { title: "New Page", editing_roles: "public" }, 401)
             expect(WikiPage.last).to be_nil
-          end
-
-          context "with the block editor" do
-            context "with the block editor feature flag on", skip: "defer until we have a stable block editor json schema" do
-              before do
-                Account.default.enable_feature!(:block_editor)
-              end
-
-              it "succeeds" do
-                block_editor_attributes = {
-                  time: Time.now.to_i,
-                  blocks: { "text" => "test", "id" => "R0iGYLKhw2", "type" => "paragraph" },
-                  version: "0.2"
-                }
-                create_wiki_page(@teacher, { title: "New Page", block_editor_attributes: })
-                expect(WikiPage.last.title).to eq "New Page"
-                expect(WikiPage.last.block_editor).to be_present
-                expect(WikiPage.last.block_editor.blocks).to eq({ "text" => "test", "id" => "R0iGYLKhw2", "type" => "paragraph" })
-              end
-            end
-
-            context "with the block editor feature flag off" do
-              before do
-                Account.default.disable_feature!(:block_editor)
-              end
-
-              it "ignores the block_editor_attributes" do
-                block_editor_attributes = {
-                  time: Time.now.to_i,
-                  blocks: { "text" => "test", "id" => "R0iGYLKhw2", "type" => "paragraph" },
-                  version: "1.0"
-                }
-                create_wiki_page(@teacher, { title: "New Page", block_editor_attributes: })
-                expect(WikiPage.last.title).to eq "New Page"
-                expect(WikiPage.last.block_editor).not_to be_present
-              end
-            end
           end
         end
 

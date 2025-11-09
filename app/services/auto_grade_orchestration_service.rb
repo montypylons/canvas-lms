@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class CedarAIGraderError < StandardError; end
-
 class AutoGradeOrchestrationService
   MAX_ATTEMPTS = 3
 
@@ -102,14 +100,14 @@ class AutoGradeOrchestrationService
       )
 
       unless get_criteria_missing_grades(auto_grade_result.grade_data, rubric).empty?
-        raise CedarAIGraderError, "Number of graded criteria (#{merged_data.length}) is less than the number of rubric criteria (#{rubric.data.length})"
+        raise CedarAi::Errors::GraderError, "Number of graded criteria (#{merged_data.length}) is less than the number of rubric criteria (#{rubric.data.length})"
       end
     end
 
     auto_grade_result
   rescue => e
     Rails.logger.warn("[AutoGrade] Grading failed for submission #{submission.id}: #{e.message}")
-    retryable = e.is_a?(CedarAIGraderError)
+    retryable = e.is_a?(CedarAi::Errors::GraderError)
     handle_grading_failure(
       error_message: "Grading failed: #{e.message}",
       submission:,
@@ -146,14 +144,14 @@ class AutoGradeOrchestrationService
       )
 
       unless get_criteria_missing_comments(merged_data, rubric).empty?
-        raise CedarAIGraderError, "Number of comments (#{merged_data.length}) is less than the number of rubric criteria (#{rubric.data.length})"
+        raise CedarAi::Errors::GraderError, "Number of comments (#{merged_data.length}) is less than the number of rubric criteria (#{rubric.data.length})"
       end
     end
 
     auto_grade_result
   rescue => e
     Rails.logger.warn("[AutoGrade] Grading failed for submission #{submission.id}: #{e.message}")
-    retryable = e.is_a?(CedarAIGraderError)
+    retryable = e.is_a?(CedarAi::Errors::GraderError)
     handle_grading_failure(
       error_message: "Grading failed: #{e.message}",
       submission:,
@@ -167,7 +165,7 @@ class AutoGradeOrchestrationService
     autograde_error_handling(submission, auto_grade_result, progress, error_message)
     current_attempts = progress&.delayed_job&.attempts&.+ 1
 
-    if retryable && current_attempts < MAX_ATTEMPTS
+    if retryable && current_attempts && current_attempts < MAX_ATTEMPTS
       raise Delayed::RetriableError, error_message
     end
 

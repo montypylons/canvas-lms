@@ -26,7 +26,8 @@ import {IconTrashLine, IconAddLine} from '@instructure/ui-icons'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {TruncateText} from '@instructure/ui-truncate-text'
 import './individual-button-settings.css'
-import {ButtonData, ButtonBlockIndividualButtonSettingsProps, ButtonStyle} from './types'
+import {ButtonBlockIndividualButtonSettingsProps} from './types'
+import {ButtonData, ButtonStyle} from '../BlockItems/Button/types'
 import {useButtonManager} from './useButtonManager'
 import {ToggleGroup} from '@instructure/ui-toggle-details'
 import {SimpleSelect} from '@instructure/ui-simple-select'
@@ -117,10 +118,10 @@ export const ButtonBlockIndividualButtonSettings = ({
         />
       )}
       <TextInput
-        renderLabel={I18n.t('Url')}
+        renderLabel={I18n.t('URL')}
         value={button.url}
         onChange={(_e, value) => updateButton(button.id, {url: value})}
-        placeholder={I18n.t('Url')}
+        placeholder={I18n.t('URL')}
       />
       <SimpleSelect
         value={button.linkOpenMode}

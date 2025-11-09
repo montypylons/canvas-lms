@@ -23,17 +23,20 @@ import {HighlightBlockLayout} from './HighlightBlockLayout'
 import {getIcon} from './components/getIcon'
 import {HighlightText} from './components/HighlightText'
 import {HighlightTextEdit} from './components/HighlightTextEdit'
-import {useSave} from '../BaseBlock/useSave'
+import {useSave} from '../../hooks/useSave'
 import {BaseBlock} from '../BaseBlock'
 import {defaultProps} from './defaultProps'
 import {highlightBlockContrast} from '../../accessibilityChecker/rules/highlightBlockContrast'
+import {getContrastingTextColorCached} from '../../utilities/getContrastingTextColor'
 
 const I18n = createI18nScope('block_content_editor')
+const screenReaderContent = I18n.t('Important information')
 
 const HighlightBlockView = (props: HighlightBlockProps) => {
   return (
     <HighlightBlockLayout
       icon={getIcon(props.displayIcon, props.textColor)}
+      screenReaderContent={screenReaderContent}
       content={<HighlightText content={props.content} color={props.textColor} />}
       backgroundColor={props.highlightColor}
     />
@@ -47,6 +50,7 @@ const HighlightBlockEditView = (props: HighlightBlockProps) => {
 
 const HighlightBlockEdit = (props: HighlightBlockProps) => {
   const [content, setContent] = useState(props.content)
+  const labelColor = getContrastingTextColorCached(props.highlightColor)
 
   useSave<typeof HighlightBlock>(() => ({
     content,
@@ -55,7 +59,10 @@ const HighlightBlockEdit = (props: HighlightBlockProps) => {
   return (
     <HighlightBlockLayout
       icon={getIcon(props.displayIcon, props.textColor)}
-      content={<HighlightTextEdit content={content} setContent={setContent} />}
+      screenReaderContent={screenReaderContent}
+      content={
+        <HighlightTextEdit content={content} setContent={setContent} labelColor={labelColor} />
+      }
       backgroundColor={props.highlightColor}
     />
   )

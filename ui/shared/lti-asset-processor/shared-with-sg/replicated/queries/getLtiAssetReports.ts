@@ -18,35 +18,61 @@
 
 import {z} from 'zod'
 import {useScope as createI18nScope} from '@canvas/i18n'
-import {gql, type GqlTemplateStringType} from '../../dependenciesShims'
+// biome-ignore lint/nursery/noImportCycles: replicated/ directory should be kept identical to the code in canvas-lms
+import {type GqlTemplateStringType, gql} from '../../dependenciesShims'
 
 const I18n = createI18nScope('lti_asset_processor')
 
-// Exported for use in Canvas
+export const LTI_ASSET_REPORT_COMMON_FIELDS: GqlTemplateStringType = gql`
+  fragment LtiAssetReportCommonFields on LtiAssetReport {
+    _id
+    comment
+    errorCode
+    indicationAlt
+    indicationColor
+    launchUrlPath
+    priority
+    processingProgress
+    processorId
+    resubmitAvailable
+    result
+    resultTruncated
+    title
+    asset {
+      attachmentId,
+      submissionAttempt,
+      discussionEntryVersion {
+        _id
+        messageIntro
+        createdAt
+      }
+    }
+  }
+`
+
+// For Student views in Canvas.
+export const LTI_ASSET_REPORT_FOR_STUDENT_FRAGMENT: GqlTemplateStringType = gql`
+  fragment LtiAssetReportForStudent on LtiAssetReport {
+    ...LtiAssetReportCommonFields
+    asset {
+      attachmentName
+    }
+  }
+  ${LTI_ASSET_REPORT_COMMON_FIELDS}
+`
+
+// Query used in SpeedGrader. Exported for use in Canvas.
 export const LTI_ASSET_REPORTS_QUERY: GqlTemplateStringType = gql`
   query SpeedGrader_LtiAssetReportsQuery($assignmentId: ID!, $studentUserId: ID, $studentAnonymousId: ID) {
     submission(assignmentId: $assignmentId, userId: $studentUserId, anonymousId: $studentAnonymousId) {
       ltiAssetReportsConnection(first: 20) {
         nodes {
-          _id
-          comment
-          errorCode
-          indicationAlt
-          indicationColor
-          launchUrlPath
-          priority
-          processingProgress
-          processorId
-          reportType
-          resubmitAvailable
-          result
-          resultTruncated
-          title
-          asset { attachmentId, submissionAttempt }
+          ...LtiAssetReportCommonFields
         }
       }
     }
   }
+  ${LTI_ASSET_REPORT_COMMON_FIELDS}
 `
 
 // Disallows both studentUserId and studentAnonymousId being set

@@ -73,6 +73,7 @@ module Lti
           },
           activity: {
             id: @params[:assignment].lti_context_id,
+            title: @params[:assignment].title,
           },
           submission: {
             id: @params[:submission_lti_id],
@@ -109,6 +110,15 @@ module Lti
         {
           assignment: @params[:assignment]
         }
+      end
+
+      def info_log(tool)
+        super.merge(
+          assignment_id: @params[:assignment].id,
+          submission_lti_id: @params[:submission_lti_id],
+          asset_count: @params[:assets].length,
+          asset_uuids: @params[:assets].pluck(:asset_id)
+        )
       end
     end
   end

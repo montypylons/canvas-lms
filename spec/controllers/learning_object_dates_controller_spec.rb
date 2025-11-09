@@ -756,7 +756,6 @@ describe LearningObjectDatesController do
 
     context "with non-collaborative groups overrides" do
       before do
-        @course.account.enable_feature!(:assign_to_differentiation_tags)
         @course.account.settings = { allow_assign_to_differentiation_tags: { value: true } }
         @course.account.save
 
@@ -1058,7 +1057,6 @@ describe LearningObjectDatesController do
       end
 
       it "allows removing differentiation tag overrides when account setting is disabled" do
-        @course.account.enable_feature!(:assign_to_differentiation_tags)
         @course.account.settings = { allow_assign_to_differentiation_tags: { value: true } }
         @course.account.save
 
@@ -1153,7 +1151,7 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", true
+      it_behaves_like "learning object updates", true
 
       it "returns bad_request if dates are invalid" do
         put :update, params: { **default_params, unlock_at: "2023-01-" }
@@ -1169,7 +1167,6 @@ describe LearningObjectDatesController do
 
       context "with non-collaborative groups overrides" do
         before do
-          @course.account.enable_feature!(:assign_to_differentiation_tags)
           @course.account.settings = { allow_assign_to_differentiation_tags: { value: true } }
           @course.account.save
 
@@ -1250,6 +1247,60 @@ describe LearningObjectDatesController do
           end
         end
       end
+
+      context "on blueprint child courses" do
+        before :once do
+          @child_course = @course
+          @child_assignment = learning_object
+          master_template = MasterCourses::MasterTemplate.set_as_master_course(course_model)
+          child_subscription = master_template.add_child_course!(@child_course)
+          MasterCourses::ChildContentTag.create!(child_subscription:, content: @child_assignment)
+          @mct = MasterCourses::MasterContentTag.create!(master_template:, content: assignment_model)
+          @child_assignment.update! migration_id: @mct.migration_id
+        end
+
+        it "returns unauthorized when due_dates are locked and updating overrides" do
+          @mct.update_attribute(:restrictions, { due_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @course.default_section.id, due_at: "2024-01-02T05:00:00Z" }] }
+          expect(response).to be_unauthorized
+        end
+
+        it "returns unauthorized when availability_dates are locked and updating overrides" do
+          @mct.update_attribute(:restrictions, { availability_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @course.default_section.id, unlock_at: "2024-01-01T05:00:00Z" }] }
+          expect(response).to be_unauthorized
+        end
+
+        it "allows updating due_dates when only availability_dates are locked" do
+          @mct.update_attribute(:restrictions, { availability_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @child_course.default_section.id, due_at: "2024-01-02T05:00:00Z" }] }
+          expect(response).to be_successful
+        end
+
+        it "allows updating availability_dates when only due_dates are locked" do
+          @mct.update_attribute(:restrictions, { due_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @child_course.default_section.id, unlock_at: "2024-01-01T05:00:00Z" }] }
+          expect(response).to be_successful
+        end
+
+        it "returns unauthorized when both are locked and updating due_dates" do
+          @mct.update_attribute(:restrictions, { due_dates: true, availability_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @child_course.default_section.id, due_at: "2024-01-02T05:00:00Z" }] }
+          expect(response).to be_unauthorized
+        end
+
+        it "returns unauthorized when both are locked and updating availability_dates" do
+          @mct.update_attribute(:restrictions, { due_dates: true, availability_dates: true })
+          put :update, params: { **default_params,
+            assignment_overrides: [{ course_section_id: @child_course.default_section.id, unlock_at: "2024-01-01T05:00:00Z" }] }
+          expect(response).to be_unauthorized
+        end
+      end
     end
 
     context "quizzes" do
@@ -1272,7 +1323,7 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", true
+      it_behaves_like "learning object updates", true
 
       it "returns unauthorized if user doesn't have manage_assignments_edit permission" do
         RoleOverride.create!(context: @course.account, permission: "manage_assignments_edit", role: teacher_role, enabled: false)
@@ -1882,7 +1933,7 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", true
+      it_behaves_like "learning object updates", true
 
       it "removes base dates on DiscussionTopic object if it has any" do
         learning_object.update!(**default_availability_dates)
@@ -1917,8 +1968,8 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", false
-      include_examples "learning objects without due dates"
+      it_behaves_like "learning object updates", false
+      it_behaves_like "learning objects without due dates"
 
       it "removes section visibilities and changes 'is_section_specific' to false" do
         learning_object.discussion_topic_section_visibilities << DiscussionTopicSectionVisibility.new(
@@ -1961,8 +2012,8 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", false
-      include_examples "learning objects without due dates"
+      it_behaves_like "learning object updates", false
+      it_behaves_like "learning objects without due dates"
 
       it "creates an assignment if noop override is included and conditional release is enabled" do
         @course.conditional_release = true
@@ -2161,7 +2212,7 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", false
+      it_behaves_like "learning object updates", false
 
       it "does not remove the assignment if a noop override is removed" do
         @course.conditional_release = true
@@ -2209,8 +2260,8 @@ describe LearningObjectDatesController do
         }
       end
 
-      include_examples "learning object updates", false
-      include_examples "learning objects without due dates"
+      it_behaves_like "learning object updates", false
+      it_behaves_like "learning objects without due dates"
 
       it "returns unauthorized if user doesn't have manage_files_edit permission" do
         RoleOverride.create!(context: @course.account, permission: "manage_files_edit", role: teacher_role, enabled: false)
@@ -2222,6 +2273,154 @@ describe LearningObjectDatesController do
         Account.site_admin.disable_feature! :differentiated_files
         put :update, params: { **default_params, unlock_at: "2021-01-01T00:00:00Z" }
         expect(response).to be_bad_request
+      end
+    end
+  end
+
+  describe "peer review sub assignment functionality" do
+    before :once do
+      @assignment_with_peer_review = @course.assignments.create!(
+        title: "Assignment with Peer Review",
+        due_at: "2025-09-10T18:00:00Z",
+        peer_reviews: true,
+        peer_review_count: 2
+      )
+    end
+
+    context "when peer_review_grading feature flag is enabled" do
+      before :once do
+        @course.enable_feature!(:peer_review_grading)
+        @peer_review_sub_assignment = PeerReviewSubAssignment.create!(
+          title: "Peer Review Sub Assignment",
+          parent_assignment: @assignment_with_peer_review,
+          due_at: "2025-09-15T18:00:00Z",
+          unlock_at: "2025-09-10T08:00:00Z",
+          lock_at: "2025-09-30T18:00:00Z",
+          only_visible_to_overrides: false
+        )
+        @assignment_with_peer_review.reload
+      end
+
+      context "without peer review sub assignment overrides" do
+        it "includes peer_review_sub_assignment when include_peer_review=true is specified" do
+          get :show, params: { course_id: @course.id, assignment_id: @assignment_with_peer_review.id, include_peer_review: true }
+          expect(response).to be_successful
+
+          json = json_parse
+          expect(json).to have_key("peer_review_sub_assignment")
+
+          peer_review_data = json["peer_review_sub_assignment"]
+          expect(peer_review_data["id"]).to eq(@peer_review_sub_assignment.id)
+          expect(peer_review_data["due_at"]).to eq("2025-09-15T18:00:00Z")
+          expect(peer_review_data["unlock_at"]).to eq("2025-09-10T08:00:00Z")
+          expect(peer_review_data["lock_at"]).to eq("2025-09-30T18:00:00Z")
+          expect(peer_review_data["only_visible_to_overrides"]).to be false
+          expect(peer_review_data["visible_to_everyone"]).to be true
+          expect(peer_review_data["overrides"]).to eq([])
+        end
+
+        it "does not include peer_review_sub_assignment when include_peer_review is not specified" do
+          get :show, params: { course_id: @course.id, assignment_id: @assignment_with_peer_review.id }
+          expect(response).to be_successful
+
+          json = json_parse
+          expect(json).not_to have_key("peer_review_sub_assignment")
+        end
+      end
+
+      context "with peer review sub assignment overrides" do
+        before :once do
+          @section = @course.course_sections.create!(name: "Test Section")
+          @peer_review_override = @peer_review_sub_assignment.assignment_overrides.create!(
+            course_section: @section,
+            due_at: "2025-09-12T18:00:00Z",
+            unlock_at: "2025-09-07T08:00:00Z",
+            lock_at: "2025-09-17T18:00:00Z",
+            due_at_overridden: true,
+            unlock_at_overridden: true,
+            lock_at_overridden: true
+          )
+        end
+
+        it "includes peer review sub assignment with overrides in response when include_peer_review=true is specified" do
+          get :show, params: { course_id: @course.id, assignment_id: @assignment_with_peer_review.id, include_peer_review: true }
+          expect(response).to be_successful
+
+          json = json_parse
+          expect(json).to have_key("peer_review_sub_assignment")
+
+          peer_review_data = json["peer_review_sub_assignment"]
+          expect(peer_review_data["id"]).to eq(@peer_review_sub_assignment.id)
+          expect(peer_review_data["overrides"]).to have(1).item
+
+          override_data = peer_review_data["overrides"][0]
+          expect(override_data["id"]).to eq(@peer_review_override.id)
+          expect(override_data["assignment_id"]).to eq(@peer_review_sub_assignment.id)
+          expect(override_data["course_section_id"]).to eq(@section.id)
+          expect(override_data["title"]).to eq("Test Section")
+          expect(override_data["due_at"]).to eq("2025-09-12T18:00:00Z")
+          expect(override_data["unlock_at"]).to eq("2025-09-07T08:00:00Z")
+          expect(override_data["lock_at"]).to eq("2025-09-17T18:00:00Z")
+        end
+
+        it "includes both main assignment overrides and peer review sub assignment overrides when include_peer_review=true is specified" do
+          main_override = @assignment_with_peer_review.assignment_overrides.create!(
+            course_section: @section,
+            due_at: "2025-09-05T18:00:00Z",
+            due_at_overridden: true
+          )
+
+          get :show, params: { course_id: @course.id, assignment_id: @assignment_with_peer_review.id, include_peer_review: true }
+          expect(response).to be_successful
+
+          json = json_parse
+
+          expect(json["overrides"]).to have(1).item
+          expect(json["overrides"][0]["id"]).to eq(main_override.id)
+          expect(json["overrides"][0]["assignment_id"]).to eq(@assignment_with_peer_review.id)
+          expect(json["peer_review_sub_assignment"]["overrides"]).to have(1).item
+          expect(json["peer_review_sub_assignment"]["overrides"][0]["id"]).to eq(@peer_review_override.id)
+          expect(json["peer_review_sub_assignment"]["overrides"][0]["assignment_id"]).to eq(@peer_review_sub_assignment.id)
+        end
+      end
+    end
+
+    context "when peer_review_grading feature flag is disabled" do
+      before :once do
+        # Peer review sub assignment that exists but should not be shown
+        @hidden_peer_review_sub_assignment = PeerReviewSubAssignment.create!(
+          title: "Hidden Peer Review Sub Assignment",
+          parent_assignment: @assignment_with_peer_review
+        )
+        @course.disable_feature!(:peer_review_grading)
+        @assignment_with_peer_review.reload
+      end
+
+      it "does not include peer_review_sub_assignment in response" do
+        get :show, params: { course_id: @course.id, assignment_id: @assignment_with_peer_review.id }
+        expect(response).to be_successful
+
+        json = json_parse
+        expect(json).not_to have_key("peer_review_sub_assignment")
+      end
+    end
+
+    context "when assignment does not have peer reviews enabled" do
+      before :once do
+        @course.enable_feature!(:peer_review_grading)
+        @assignment_without_peer_review = @course.assignments.create!(
+          title: "Assignment without Peer Review",
+          due_at: "2025-09-12T00:00:00Z",
+          peer_reviews: false
+        )
+      end
+
+      it "does not include peer_review_sub_assignment" do
+        get :show, params: { course_id: @course.id, assignment_id: @assignment_without_peer_review.id }
+        expect(response).to be_successful
+
+        json = json_parse
+        expect(json).not_to have_key("peer_review_sub_assignment")
       end
     end
   end

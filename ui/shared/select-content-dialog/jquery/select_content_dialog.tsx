@@ -439,7 +439,11 @@ export const Events = {
         'id',
         tool.definition_id,
       )
-      url = url + '?placement=' + placement_type + '&secure_params=' + $('#secure_params').val()
+      url = url + '?placement=' + placement_type
+      const secureParamsValue = $('#secure_params').val()
+      if (secureParamsValue) {
+        url += '&secure_params=' + secureParamsValue
+      }
       if ($('#select_context_content_dialog').data('context_module_id')) {
         url += '&context_module_id=' + $('#select_context_content_dialog').data('context_module_id')
         url += '&com_instructure_course_canvas_resource_type=context_module.external_tool'
@@ -584,6 +588,9 @@ export const selectContentDialog = function (options?: SelectContentDialogOption
         }
         upload_form?.onClose()
       },
+      open() {
+        $(this).parent().find('.ui-dialog-titlebar-close').focus()
+      },
       modal: true,
       zIndex: 1000,
       create() {
@@ -712,6 +719,11 @@ $(document).ready(function () {
       const $options = $(
         '#select_context_content_dialog .module_item_option:visible:first .module_item_select option:selected',
       )
+      const contextModuleId = $dialog.data('context_module_id')
+      const $module = $('#context_module_' + contextModuleId)
+      const currentItemCount = $module.find('.context_module_items .context_module_item').length
+      const basePosition = currentItemCount + 1
+      let itemIndex = 0
       $options.each(function () {
         const $option = $(this)
         let item_id = $option.val()
@@ -733,6 +745,9 @@ $(document).ready(function () {
           'item[indent]': $('#content_tag_indent').val(),
           quiz_lti,
         }
+        item_data._bulk_item_index = itemIndex++
+        item_data._bulk_base_position = basePosition || 1
+
         if (item_data['item[id]'] === 'new') {
           const $urls = $(
             '#select_context_content_dialog .module_item_option:visible:first .new .add_item_url',

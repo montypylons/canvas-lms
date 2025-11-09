@@ -27,9 +27,9 @@ class FilePreviewsController < ApplicationController
   end
 
   # renders (or redirects to) appropriate content for the file, such as
-  # canvadocs, crocodoc, inline image, etc.
+  # canvadocs, inline image, etc.
   def show
-    @file = @context.attachments.not_deleted.find_by(id: params[:file_id])
+    @file = @context.attachments.not_deleted.find_by(id: params[:file_id] || params[:id])
     css_bundle :react_files
     unless @file
       @headers = false
@@ -48,10 +48,8 @@ class FilePreviewsController < ApplicationController
       @file.context_module_action(@current_user, :read) if @current_user
       log_asset_access(@file, "files", "files")
       # redirect to or render content for the file according to its type
-      # crocodocs (if annotation requested)
-      # and canvadocs
-      if (Canvas::Plugin.value_to_boolean(params[:annotate]) && (url = @file.crocodoc_url(@current_user))) ||
-         (url = @file.canvadoc_url(@current_user))
+      # canvadocs
+      if (url = @file.canvadoc_url(@current_user))
         redirect_to url
       # google docs
       elsif GoogleDocsPreview.previewable?(@domain_root_account, @file)

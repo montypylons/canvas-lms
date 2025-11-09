@@ -37,7 +37,6 @@ import {showConfirmationDialog} from '@canvas/feature-flags/react/ConfirmationDi
 import {useScope as createI18nScope} from '@canvas/i18n'
 import LoadingIndicator from '@canvas/loading-indicator'
 import {assignLocation} from '@canvas/util/globalUtils'
-import {clearAssetProcessorReports} from '@canvas/lti-asset-processor/react/AssetProcessorHelper'
 import {Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {IconCheckSolid, IconEndSolid, IconRefreshSolid} from '@instructure/ui-icons'
@@ -525,10 +524,6 @@ const SubmissionManager = ({
   const handleSubmitConfirmation = () => {
     submitAssignment()
     setDraftStatus(null)
-    // We clear the asset processor reports from ENV when a new attempt is submitted
-    // to ensure that the reports are not shown for the new attempt.
-    // User needs to reload the page to see the new reports.
-    clearAssetProcessorReports()
   }
 
   const handleSubmitButton = async () => {
@@ -550,7 +545,7 @@ const SubmissionManager = ({
     if (multipleTypesDrafted(submission)) {
       const confirmed = await showConfirmationDialog({
         body: I18n.t(
-          'You are submitting a %{submissionType} submission. Only one submission type is allowed. All other submission types will be deleted.',
+          "You are submitting a %{submissionType} submission. Only one submission type is allowed per submission. Submitting in this format will delete any work you've started in other submission types.",
           {submissionType: friendlyTypeName(activeSubmissionType)},
         ),
         confirmText: I18n.t('Okay'),

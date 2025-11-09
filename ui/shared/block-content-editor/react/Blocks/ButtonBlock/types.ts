@@ -16,24 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react'
 import {FocusHandler} from '../../hooks/useFocusElement'
 import {Prettify} from '../../utilities/Prettify'
 import {TitleData} from '../BlockItems/Title/types'
+import {ButtonData, ButtonBaseProps} from '../BlockItems/Button/types'
 
 export type ButtonAlignment = 'left' | 'center' | 'right'
 export type ButtonLayout = 'horizontal' | 'vertical'
-export type ButtonLinkOpenMode = 'new-tab' | 'same-tab'
-export type ButtonStyle = 'filled' | 'outlined'
-
-export type ButtonData = {
-  id: number
-  text: string
-  url: string
-  linkOpenMode: ButtonLinkOpenMode
-  primaryColor: string
-  secondaryColor: string
-  style: ButtonStyle
-}
 
 export type ButtonBlockSettings = {
   buttons: ButtonData[]
@@ -47,11 +37,11 @@ export type ButtonBlockSettings = {
 
 export type ButtonBlockProps = Prettify<TitleData & ButtonBlockSettings>
 
-export type ButtonDisplayProps = Prettify<
+export type ButtonBlockLayoutProps = Prettify<
   ButtonBlockSettings & {
     dataTestId: string
-    onButtonClick?: (buttonId: number) => void
     focusHandler?: FocusHandler
+    ButtonComponent: React.ComponentType<ButtonBaseProps>
   }
 >
 
@@ -76,11 +66,4 @@ export type ButtonBlockColorSettingsProps = {
   titleColor: string
   onBackgroundColorChange: (color: string) => void
   onTitleColorChange: (color: string) => void
-}
-
-export type SingleButtonProps = {
-  button: ButtonData
-  isFullWidth: boolean
-  onButtonClick?: (buttonId: number) => void
-  focusHandler?: FocusHandler
 }

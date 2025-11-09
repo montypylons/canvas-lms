@@ -129,18 +129,40 @@ describe Canvas::LiveEvents do
 
   describe ".scan_youtube_links" do
     it "includes the neccesary params in payload" do
-      payload = Struct.new(:scan_id, :course_id, :external_context_id).new(
+      payload = Struct.new(:scan_id, :canvas_id, :external_tool_id).new(
         "scan_123456",
-        "1",
-        "ext_context_789"
+        "canvas_id_1000002",
+        "external_tool_123"
       )
       expect_event("scan_youtube_links",
                    hash_including(
                      scan_id: "scan_123456",
-                     course_id: "1",
-                     external_context_id: "ext_context_789"
+                     canvas_id: "canvas_id_1000002",
+                     external_tool_id: "external_tool_123"
                    ))
       Canvas::LiveEvents.scan_youtube_links(payload)
+    end
+  end
+
+  describe ".convert_new_quiz_youtube_link" do
+    it "includes the neccesary params in payload" do
+      payload = Struct.new(:resource_id, :resource_type, :src, :field, :new_html).new(
+        "quiz_123456",
+        "Quiz",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "description",
+        "<p>https://www.youtube.com/watch?v=dQw4w9WgXcQ</p>"
+      )
+
+      expect_event("convert_new_quiz_youtube_link",
+                   hash_including(
+                     resource_id: "quiz_123456",
+                     resource_type: "Quiz",
+                     src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                     field: "description",
+                     new_html: "<p>https://www.youtube.com/watch?v=dQw4w9WgXcQ</p>"
+                   ))
+      Canvas::LiveEvents.convert_new_quiz_youtube_link(payload)
     end
   end
 

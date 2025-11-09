@@ -301,6 +301,12 @@ class DiscussionRow extends Component {
         </Text>
       )
     }
+
+    // Don't show availability dates if course pacing is enabled
+    if (ENV.IN_PACED_COURSE) {
+      return ''
+    }
+
     const assignment = this.props.discussion.assignment
 
     const ungradedLockAt = this.props.discussion.ungraded_discussion_overrides?.sort((a, b) =>
@@ -647,6 +653,8 @@ class DiscussionRow extends Component {
             href={`gradebook/speed_grader?assignment_id=${assignmentId}`}
             className="icon-speed-grader"
             style={{color: 'inherit', textDecoration: 'none'}}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             {I18n.t('SpeedGrader')}
           </a>,

@@ -49,6 +49,8 @@ module Types
     implements Interfaces::SubmissionInterface
     implements Interfaces::LegacyIDInterface
 
+    connection_type_class TotalCountConnection
+
     def initialize(object, context)
       super
       anonymous_grading_scoped_context(object)
@@ -131,6 +133,7 @@ module Types
     def lti_asset_reports_connection(latest: false)
       load_association(:root_account).then do |root_account|
         next unless root_account.feature_enabled?(:lti_asset_processor)
+        next if object.submission_type == "discussion_topic" && !root_account.feature_enabled?(:lti_asset_processor_discussions)
 
         if object.assignment.context.grants_any_right?(current_user, :manage_grades, :view_all_grades)
           if latest
@@ -170,13 +173,21 @@ module Types
 
     field :auto_grade_submission_issues, Types::EligibilityIssueType, null: true, description: "Issues related to the submission"
     def auto_grade_submission_issues
-      GraphQLHelpers::AutoGradeEligibilityHelper.validate_submission(submission:)
+      load_association(:course).then do |course|
+        next nil unless course.feature_enabled?(:project_lhotse)
+
+        GraphQLHelpers::AutoGradeEligibilityHelper.validate_submission(submission:)
+      end
     end
 
     field :auto_grade_submission_errors, [String], null: false, description: "Errors related to the submission"
     def auto_grade_submission_errors
-      issues = GraphQLHelpers::AutoGradeEligibilityHelper.validate_submission(submission:)
-      issues ? [issues[:message]] : []
+      load_association(:course).then do |course|
+        next [] unless course.feature_enabled?(:project_lhotse)
+
+        issues = GraphQLHelpers::AutoGradeEligibilityHelper.validate_submission(submission:)
+        issues ? [issues[:message]] : []
+      end
     end
 
     field :provisional_grades_connection, Types::ProvisionalGradeType.connection_type, null: true
